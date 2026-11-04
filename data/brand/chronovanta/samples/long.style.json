@@ -1,0 +1,11 @@
+{
+  "ok": true,
+  "score": 78,
+  "issues": [],
+  "ratios": {
+    "bar_h": 0.78,
+    "bar_w": 0.98,
+    "headline": 1.03
+  },
+  "examples": 1
+}

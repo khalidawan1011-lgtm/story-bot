@@ -1,0 +1,18 @@
+STORY BOT STUDIO - BLANK COPY
+================================
+Nothing is connected: no channels, no API keys, no logins, no GitHub.
+
+1. Install Python 3.12 and ffmpeg (ffmpeg on PATH, or set FFMPEG_BIN/FFPROBE_BIN in .env).
+2. In this folder:  python -m venv .venv
+                    .venv\Scripts\pip install -r requirements.txt
+3. Put your own keys in .env (all free):
+     GEMINI_API_KEY    aistudio.google.com/apikey   (scripts, fact-checks, clip checks)
+     PEXELS_API_KEY    pexels.com/api               (stock clips and photos)
+     PIXABAY_API_KEY   pixabay.com/api/docs         (more stock clips)
+     optional: COVERR_API_KEY, NPS_API_KEY, DATA_GOV_API_KEY, GROQ_API_KEY
+4. Start the dashboard:  .venv\Scripts\python web_dashboard.py   ->  http://127.0.0.1:8000
+   (another bot already on 8000? add DASHBOARD_PORT=8010 to .env)
+5. "New channel": describe it; then connect YouTube with your own Google Cloud project
+   (ADD_MORE_UPLOAD_QUOTA.md) and phone-verify the channel at youtube.com/verify.
+6. Daily videos with the PC off: make your own PRIVATE GitHub repo, push this folder to it,
+   then run scripts/setup_github_actions.py (or "Send to GitHub" on the dashboard).

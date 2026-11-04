@@ -33,6 +33,10 @@ RELEASE_TIMES = {
     "space documentaries":    (("19:00", "22:00"), ("17:30",)),
     "personal finance":       (("15:00", "19:00"), ("13:00",)),
     "deep ocean":             (("18:30", "21:30"), ("16:30",)),
+    # US/UK/Canada tech audience: US morning, lunch and evening Shorts, the long
+    # documentary at 5 PM ET (US after work, UK evening). Every release is 4 h
+    # from the next, long days included: 09 / 13 / 17 / 21.
+    "future science":         (("09:00", "13:00", "21:00"), ("17:00",)),
 }
 _DEFAULT_RELEASE = (("12:00", "18:00"), ("15:00",))
 

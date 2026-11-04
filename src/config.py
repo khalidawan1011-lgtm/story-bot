@@ -78,6 +78,9 @@ class Settings:
     edge_voice: str = os.getenv("EDGE_TTS_VOICE", "en-US-AriaNeural")
     edge_rate: str = os.getenv("EDGE_TTS_RATE", "+0%")
     edge_volume: str = os.getenv("EDGE_TTS_VOLUME", "+0%")
+    # The Urdu voice rushes at its normal pace; a little slower sounds like a
+    # narrator. Used when a channel sets no rate of its own.
+    urdu_rate: str = os.getenv("URDU_TTS_RATE", "-8%")
     ffmpeg_bin: str = _resolve_bin(os.getenv("FFMPEG_BIN"), "ffmpeg.exe")
     ffprobe_bin: str = _resolve_bin(os.getenv("FFPROBE_BIN"), "ffprobe.exe")
     enable_background_music: bool = os.getenv("ENABLE_BACKGROUND_MUSIC", "true").lower() == "true"

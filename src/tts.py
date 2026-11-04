@@ -70,6 +70,11 @@ def prosody_for(channel) -> dict:
 
 
 def _communicate(text: str, voice: str, rate: str | None, pitch: str | None):
+    if voice.startswith("ur-"):
+        from .language import urdu_for_voice
+
+        text = urdu_for_voice(text)
+        rate = rate or settings.urdu_rate
     return edge_tts.Communicate(
         text=text,
         voice=voice,

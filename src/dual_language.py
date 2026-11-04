@@ -11,7 +11,7 @@ import dataclasses
 import shutil
 from pathlib import Path
 
-from .language import LANGUAGES, PURE_URDU, channel_language, display_marks, voice_for
+from .language import LANGUAGES, PURE_URDU, URDU_SPEECH_RULES, channel_language, display_marks, voice_for
 from .models import Lesson, Scene
 
 
@@ -50,7 +50,8 @@ def translate_lesson(lesson: Lesson, target: str, strict: bool = False) -> Lesso
             "For every scene return 'line' in ROMAN URDU (Urdu written in English letters, the way "
             "people type on WhatsApp) and 'speech' = the same sentence in Urdu script (اردو) for the voice.\n"
             "Translate 'title' into Roman Urdu, and give 'title_speech' = the same title in Urdu script.\n"
-            + PURE_URDU
+            "Retell each line the way a Karachi narrator would say it, not word for word.\n"
+            + PURE_URDU + URDU_SPEECH_RULES
         )
         shape = '{"title": str, "title_speech": str, "scenes": [{"line": str, "speech": str}]}'
     else:

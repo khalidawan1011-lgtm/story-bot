@@ -1,3 +1,61 @@
 {
-  "channels": []
+  "channels": [
+    {
+      "id": "chronovanta",
+      "name": "Chronovanta",
+      "genre": "future science",
+      "builtin": false,
+      "lessons_file": "data/chronovanta_lessons.json",
+      "voice": "en-US-ChristopherNeural",
+      "made_for_kids": false,
+      "privacy": "public",
+      "category_id": "28",
+      "seo_suffix": "| Chronovanta",
+      "image_style": "premium futuristic science visualization, clean white and graphite palette with electric orange accents, cinematic lighting, photorealistic, no text",
+      "client_secret": "client_secret.json",
+      "token": "token_chronovanta.json",
+      "topics_per_day": 2,
+      "slot": 0,
+      "language": "en",
+      "tone": "Cinematic documentary narration for USA, UK and Canada viewers: curious, calm, credible. Separate established fact, research-backed possibility and speculation; frame future dates as scenarios, not certain predictions; never invent studies, quotes or numbers.",
+      "keywords": [
+        "future technology",
+        "life in 2050",
+        "future science",
+        "ai future",
+        "future of robots",
+        "future cities",
+        "technology 2040",
+        "human future",
+        "space colonization",
+        "future of medicine",
+        "brain computer interface",
+        "fusion energy",
+        "longevity science",
+        "world in 2100",
+        "emerging technology"
+      ],
+      "visuals": "still",
+      "ideas": [
+        "What Will the World Look Like in 2050?",
+        "7 Technologies That Could Transform Life by 2040",
+        "Could AI Replace Millions of Jobs by 2035?",
+        "Will Humans Ever Stop Aging?",
+        "Could Robots Run Entire Cities?",
+        "What Would a City on Mars Really Need?",
+        "Could Brain Chips Change Human Intelligence?",
+        "What Happens If AI Becomes Smarter Than Humans?",
+        "Could Fusion Power Change the Energy Industry?",
+        "How Might Humans Live in the Year 2100?"
+      ],
+      "topic": "Future Science Explained: AI, robotics, biotechnology, space technology, future cities and how humans might live in 2050-2100, grounded in real research",
+      "long_days": [
+        "Mon",
+        "Wed",
+        "Fri"
+      ],
+      "created_by": "factory",
+      "created_at": "2026-11-04T09:06:45"
+    }
+  ]
 }

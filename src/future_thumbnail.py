@@ -46,8 +46,8 @@ SPEC = {
         "sub_gap": 34, "sub_size": 31, "sub_weight": "Bold", "sub_upper": True, "sub_max_w": 470,
     },
     "short": {  # 1080 x 1920
-        "brand_y": 40, "brand_scale": 1.9,
-        "top_y": 230, "shear": 0.2,
+        "brand_y": 270, "brand_scale": 1.55,   # inside the 2:3 area YouTube shows
+        "top_y": 440, "shear": 0.2,
         "top_font": "archivo", "top_weight": "", "top_size": 240, "top_max_w": 920, "top_gap": 1.0,
         "big_font": "archivo", "big_size": 360, "big_max_w": 760,
         "bar_min_w": 940, "bar_slant": 50, "bar_pad": 70,
@@ -398,7 +398,7 @@ def compose_long(plan: dict, visual: Path | None, out: Path, channel, spec: dict
 def compose_short(plan: dict, visual: Path | None, out: Path, channel, spec: dict | None = None) -> Path:
     W, H = 1080, 1920
     canvas = Image.new("RGBA", (W, H), GRAPHITE + (255,))
-    art_top = 760
+    art_top = 940
     if visual and Path(visual).is_file():
         art = _cover(Image.open(visual).convert("RGB"), W, H - art_top + 260, 0.5).convert("RGBA")
         mask = Image.new("L", art.size, 255)
@@ -443,7 +443,7 @@ def compose_short(plan: dict, visual: Path | None, out: Path, channel, spec: dic
     for y in range(220):
         fd.line([(0, y), (W, y)], fill=GRAPHITE + (int(220 * (y / 220) ** 1.4),))
     canvas.alpha_composite(floor, (0, H - 220))
-    _annotation(canvas, 60, H - 70, "FIG. 01 — CONCEPTUAL RECONSTRUCTION", 1.5)
+    # (No annotation at the bottom: that strip is cut off in YouTube's Shorts lists.)
     ImageDraw.Draw(canvas).line([(0, H - 6), (W, H - 6)], fill=ORANGE + (255,), width=6)
     return _save(canvas, out)
 

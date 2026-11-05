@@ -50,7 +50,7 @@ def measure(path: str | Path) -> dict:
     # The bar is the biggest orange area in the headline part of the card.
     zone = np.zeros_like(orange)
     if tall:
-        zone[: int(h * 0.5), :] = 1
+        zone[: int(h * 0.65), :] = 1  # the bar sits inside the crop-safe middle
     else:
         zone[:, : int(w * 0.62)] = 1
     count, labels, stats, _ = cv2.connectedComponentsWithStats(orange * zone, connectivity=8)
@@ -74,13 +74,19 @@ def measure(path: str | Path) -> dict:
         off_edge = (left <= 0 or right_cut) if tall else right_cut
     ivory = ((r > 205) & (g > 205) & (b > 195) & (abs(r - b) < 40)).astype(np.uint8)
     if tall:
-        area = ivory[int(h * 0.1): int(h * 0.3), :]
+        # The whole upper part: the headline may sit higher (examples) or lower
+        # (inside YouTube's crop-safe area) and is still measured the same way.
+        area = ivory[: int(h * 0.6), :]
     else:
         area = ivory[int(h * 0.18): int(h * 0.5), : int(w * 0.5)]
     # Headline letters touching the side edges.
     edge_text = bool(ivory[int(h * 0.1): int(h * 0.3), :2].any() or ivory[int(h * 0.1): int(h * 0.3), -2:].any())         if tall else bool(ivory[int(h * 0.18): int(h * 0.5), :2].any())
+    # YouTube shows a Short's 9:16 thumbnail cropped to about 2:3 in its lists:
+    # roughly the top and bottom 13% are cut, so no logo or headline may sit there.
+    in_crop = bool(tall and ivory[: int(h * 0.12), :].mean() > 0.002)
     return {"tall": tall, "bar_h": round(float(bar_h), 3), "bar_w": round(float(bar_w), 3),
-            "headline": round(float(area.mean()), 3), "off_edge": bool(off_edge), "edge_text": edge_text}
+            "headline": round(float(area.mean()), 3), "off_edge": bool(off_edge), "edge_text": edge_text,
+            "in_crop": in_crop}
 
 
 def reference(channel_id: str, tall: bool) -> dict | None:
@@ -127,6 +133,9 @@ def compare(path: str | Path, channel_id: str) -> dict:
         ratios["edge"] = 1
     if card.get("edge_text"):
         issues.append("headline letters touch the edge of the card")
+        ratios["edge"] = 1
+    if card.get("in_crop"):
+        issues.append("logo or headline sits in the top strip YouTube cuts off Shorts thumbnails")
         ratios["edge"] = 1
     worst = max(abs(r - 1) for k, r in ratios.items() if k != "edge")
     if "edge" in ratios:

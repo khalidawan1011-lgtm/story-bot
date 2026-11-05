@@ -458,6 +458,13 @@ def reapply_thumbnails(hours: float = 30) -> list[str]:
             if status == "thumbnail_pending":
                 messages.append(f"[{channel_id}] {video_id}: thumbnail still pending, no kept file found")
             continue
+        from .style_match import style_ok
+
+        styled, problem = style_ok(path, get_channel(channel_id))
+        if not styled:
+            # Putting an off-style card back would undo the audit's replacement.
+            messages.append(f"[{channel_id}] {video_id}: own card is {problem[:80]}; left to the audit")
+            continue
         shown = youtube_shows_card(video_id, path)
         if shown:
             new_status, note = "uploaded", "thumbnail verified on YouTube"

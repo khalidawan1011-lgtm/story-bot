@@ -261,6 +261,14 @@ def _own_card_off_style(channel, video_id: str) -> str:
     return style_ok(own, channel)[1]
 
 
+def _release_pending(video: dict) -> bool:
+    """A bot video that sits private only because its release was refused."""
+    if video.get("privacy") != "private" or video.get("publish_at"):
+        return False
+    row = _bot_row(video["id"])
+    return bool(row is not None and row["status"] in ("uploaded", "scheduled", "thumbnail_pending") and row["publish_at"])
+
+
 def _release_held(channel, video: dict) -> str | None:
     """Release a bot video left private because its release was refused. None = nothing to do."""
     if video.get("privacy") != "private" or video.get("publish_at"):
@@ -312,6 +320,23 @@ def audit(days: int = 7, fix: bool = True, channel_id: str | None = None) -> lis
                 kind = "Short" if video["short"] else "long"
                 label = f"{tag} {video['id']} ({kind}) '{video['title'][:50]}'"
                 if state == "unknown":
+                    # A held video gets a card in the channel's style before it goes out.
+                    fixed_at, _ = _previous(video["id"])
+                    off = "" if fixed_at else _own_card_off_style(channel, video["id"])
+                    if (off and fix and _release_pending(video) and thumbnail_upload_allowed(base.id)
+                            and fixes < MAX_FIXES_PER_CHANNEL):
+                        try:
+                            path = thumbnail_for(channel, video)
+                            set_thumbnail(video["id"], path, attempts=2, client_secret_file=channel.client_secret_path,
+                                          token_file=channel.token_path)
+                            fixes += 1
+                            counts["restyled"] += 1
+                            _record(video["id"], base.id, video["title"], "fixed", f"restyled: {off[:200]}", fixed=True)
+                            messages.append(f"{label}: thumbnail was not in the channel's style, replaced before release")
+                        except Exception as exc:
+                            messages.append(f"{label}: restyle FAILED, not released: {str(exc)[:160]}")
+                            _record(video["id"], base.id, video["title"], "unknown", "held: restyle failed")
+                            continue
                     try:
                         note = _release_held(channel, video)
                     except Exception as exc:

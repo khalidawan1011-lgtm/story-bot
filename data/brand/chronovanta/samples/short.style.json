@@ -1,13 +1,11 @@
 {
-  "ok": false,
-  "score": 68,
-  "issues": [
-    "headline size/weight is 32% smaller than your examples"
-  ],
+  "ok": true,
+  "score": 76,
+  "issues": [],
   "ratios": {
-    "bar_h": 0.79,
-    "bar_w": 1.02,
-    "headline": 0.68
+    "bar_h": 0.76,
+    "bar_w": 0.96,
+    "headline": 0.96
   },
   "examples": 1
 }

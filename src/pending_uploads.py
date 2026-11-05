@@ -583,6 +583,19 @@ def _set_error(video_id: int, error: str, publish_at: str | None = None) -> None
         conn.close()
 
 
+def _hold(video_id: int, row, error: str) -> None:
+    """Put a video that may not upload yet back to waiting (never left at 'uploading')."""
+    status = "daily_upload_pending" if bool(row["is_daily"]) else "rendered"
+    conn = sqlite3.connect(settings.db_path)
+    try:
+        conn.execute("UPDATE videos SET status = ?, error = ?, upload_progress = 0 "
+                     "WHERE id = ? AND video_url IS NULL", (status, error, video_id))
+        conn.execute("UPDATE videos SET error = ? WHERE id = ? AND video_url IS NOT NULL", (error, video_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def remake_thumbnail_file(row, channel=None) -> Path:
     """Build a fresh thumbnail for a saved video, in place of its old file."""
     from .thumbnails import create_thumbnail
@@ -657,8 +670,13 @@ def _process_row(row: sqlite3.Row, *, bypass_safety_cap: bool = False) -> str:
                     thumbnail_path, regenerate=lambda: remake_thumbnail_file(row, channel),
                 )
             except ThumbnailNotReady as exc:
-                _set_error(video_id, f"Held: thumbnail not ready ({exc}). Press 'Remake thumbnail'.")
+                _hold(video_id, row, f"Held: thumbnail not ready ({exc}). Press 'Remake thumbnail'.")
                 return f"{video_id}: held, thumbnail not ready: {exc}"
+            if not row["video_url"] and not thumbnail_upload_allowed(channel.id):
+                # Known before any upload: do not mark it 'uploading' or spend quota.
+                _hold(video_id, row, "Held: YouTube does not allow custom thumbnails on this channel yet. "
+                                     "Verify it at youtube.com/verify, then press 'Thumbnails Are Verified'.")
+                return f"{video_id}: held until '{channel.id}' is verified for custom thumbnails"
         elif not thumbnail_path.exists():
             raise FileNotFoundError(f"Thumbnail missing: {thumbnail_path}")
 
@@ -736,7 +754,7 @@ def _process_row(row: sqlite3.Row, *, bypass_safety_cap: bool = False) -> str:
     except ThumbnailNotReady as exc:
         # Raised before anything reached YouTube; other uploads carry on.
         cancel_publish_at(reservation_key)
-        _set_error(video_id, f"Held: {exc}")
+        _hold(video_id, row, f"Held: {exc}")
         return f"{video_id}: held, {exc}"
     except ThumbnailUploadError as exc:
         if thumbnail_permission_denied(str(exc)):
@@ -757,9 +775,36 @@ def _process_row(row: sqlite3.Row, *, bypass_safety_cap: bool = False) -> str:
         return f"{video_id}: failed {exc}"
 
 
+def recover_stuck_uploads(minutes: int = 30) -> int:
+    """Put videos left at 'uploading' (a killed run, or a hold before the fix) back in the queue.
+
+    On GitHub every run starts fresh, so an 'uploading' row in the saved state
+    can never finish by itself; without this it was never tried again."""
+    if not settings.db_path.exists():
+        return 0
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
+    conn = sqlite3.connect(settings.db_path)
+    try:
+        moved = conn.execute(
+            """UPDATE videos
+               SET status = CASE WHEN COALESCE(is_daily, 0) = 1 THEN 'daily_upload_pending' ELSE 'rendered' END,
+                   upload_progress = 0, upload_started_at = NULL
+               WHERE status = 'uploading' AND video_url IS NULL
+                 AND (upload_started_at IS NULL OR upload_started_at < ?)""",
+            (cutoff,),
+        ).rowcount
+        conn.commit()
+    finally:
+        conn.close()
+    if moved:
+        print(f"[retry] {moved} video(s) were stuck at 'uploading'; back in the upload queue")
+    return moved
+
+
 def retry_pending_uploads(
     limit: int = 20, channel_id: str | None = None, content_type: str | None = None,
 ) -> list[str]:
+    recover_stuck_uploads()
     return [
         _process_row(row)
         for row in pending_rows(limit, channel_id=channel_id, content_type=content_type)
@@ -792,6 +837,7 @@ def has_daily_pending() -> bool:
 
 
 def retry_daily_uploads(limit: int = 20) -> list[str]:
+    recover_stuck_uploads()
     return [_process_row(row) for row in daily_pending_rows(limit=limit)]
 
 

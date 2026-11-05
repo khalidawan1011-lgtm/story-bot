@@ -211,11 +211,17 @@ def _shadowed(canvas: Image.Image, xy, text: str, font, fill, shear: float = 0.0
 
 
 def _bar(canvas: Image.Image, x: int, y: int, text: str, font, slant: int = 26, pad: int = 26,
-         shear: float = 0.0, min_w: int = 0) -> int:
-    """The orange slanted bar with the big word in graphite; returns its height."""
+         shear: float = 0.0, min_w: int = 0, max_w: int = 0) -> int:
+    """The orange slanted bar with the big word in graphite; returns its height.
+
+    `pad` sets the bar's height around the word; the side padding stays modest
+    so a taller bar never pushes past `max_w`."""
     tb = font.getbbox(text)
     tw, th = tb[2] - tb[0], tb[3] - tb[1]
-    w, h = max(tw + pad * 2 + slant + int(th * shear), min_w), th + pad * 1.3
+    hpad = min(pad, 44)
+    w, h = max(tw + hpad * 2 + slant + int(th * shear), min_w), th + pad * 1.3
+    if max_w:
+        w = min(w, max_w)
     layer = Image.new("RGBA", (int(w + 40), int(h + 40)), (0, 0, 0, 0))
     glow = Image.new("RGBA", layer.size, (0, 0, 0, 0))
     poly = [(20 + slant, 20), (20 + w, 20), (20 + w - slant, 20 + h), (20, 20 + h)]
@@ -409,15 +415,29 @@ def compose_short(plan: dict, visual: Path | None, out: Path, channel, spec: dic
     _brand(canvas, channel, 0, s["brand_y"], s["brand_scale"], center_w=W)
     y = s["top_y"]
     if plan["top"]:
+        lines = [plan["top"]]
         top = _fit(s["top_font"], s["top_weight"], plan["top"], s["top_max_w"], s["top_size"], 90)
-        tx = (W - _text_w(top, plan["top"])) // 2
-        _shadowed(canvas, (tx, y), plan["top"], top, IVORY + (255,), shear=s["shear"], blur=8)
-        y += int(top.size * s["top_gap"])
-    big = _fit(s["big_font"], "", plan["big"], s["big_max_w"], s["big_size"], 120)
+        words = plan["top"].split()
+        if len(words) >= 2 and top.size < s["top_size"] * 0.8:
+            # A long line shrinks the letters; two lines keep them big like the examples.
+            cut = min(range(1, len(words)), key=lambda i: abs(len(" ".join(words[:i])) - len(" ".join(words[i:]))))
+            lines = [" ".join(words[:cut]), " ".join(words[cut:])]
+            longest = max(lines, key=lambda line: _text_w(_font(s["top_font"], 100, s["top_weight"]), line))
+            top = _fit(s["top_font"], s["top_weight"], longest, s["top_max_w"], int(s["top_size"] * 0.9), 90)
+        for line in lines:
+            tx = (W - _text_w(top, line)) // 2
+            _shadowed(canvas, (tx, y), line, top, IVORY + (255,), shear=s["shear"], blur=8)
+            y += int(top.size * (s["top_gap"] if len(lines) == 1 else 0.98))
+    # The bar always stays inside the card, 40 px from each side.
+    room = W - 80
+    hpad = min(s["bar_pad"], 44)
+    big = _fit(s["big_font"], "", plan["big"], min(s["big_max_w"], room - hpad * 2 - s["bar_slant"] - 60),
+               s["big_size"], 120)
     tb = big.getbbox(plan["big"])
-    bar_w = max((tb[2] - tb[0]) + s["bar_pad"] * 2 + s["bar_slant"] + int((tb[3] - tb[1]) * s["shear"]), s["bar_min_w"])
+    bar_w = min(max((tb[2] - tb[0]) + hpad * 2 + s["bar_slant"] + int((tb[3] - tb[1]) * s["shear"]),
+                    s["bar_min_w"]), room)
     _bar(canvas, (W - bar_w) // 2, y, plan["big"], big, slant=s["bar_slant"], pad=s["bar_pad"],
-         shear=s["shear"], min_w=s["bar_min_w"])
+         shear=s["shear"], min_w=bar_w, max_w=room)
     floor = Image.new("RGBA", (W, 220), (0, 0, 0, 0))
     fd = ImageDraw.Draw(floor)
     for y in range(220):
@@ -448,6 +468,31 @@ def _save(canvas: Image.Image, out: Path) -> Path:
     return out
 
 
+_FILLER = {"could", "would", "will", "can", "what", "how", "why", "when", "is", "are", "does", "do", "the",
+           "a", "an", "of", "in", "by", "to", "for", "and", "our", "we", "really", "ever", "be",
+           "look", "like", "get", "make", "become", "need"}
+
+
+def fallback_plan(title: str, vertical: bool = False) -> dict:
+    """A headline taken straight from the title, for when no AI writer answers."""
+    clean = re.sub(r"\s*[|:–—-]\s.*$", "", title).strip()
+    question = clean.endswith("?")
+    words = re.findall(r"[A-Za-z0-9.']+", clean)
+    year = next((w for w in words if re.fullmatch(r"(19|20|21)\d\d", w)), "")
+    keep = [w for w in words if w.lower() not in _FILLER and w != year]
+    if year:
+        big = year + ("?" if question else "")
+        top = " ".join(keep[:2 if vertical else 3])
+    else:
+        limit = 6 if vertical else 10
+        pick = next((w for w in reversed(keep) if len(w) <= limit), keep[-1][:limit] if keep else "FUTURE")
+        big = pick + ("?" if question else "")
+        top = " ".join(w for w in keep if w != pick)[:24].rsplit(" ", 1)[0] if len(keep) > 1 else ""
+    return {"top": top.upper()[:28], "big": big.upper()[:12],
+            "sub": "A science-based look at *what comes next*", "labels": [],
+            "visual": f"{clean}, photorealistic future technology scene"}
+
+
 def compose_for_lesson(lesson, out: Path, channel, content_type: str = "long",
                        plan: dict | None = None, visual: Path | None = None) -> Path:
     """The whole card for one video: plan, visual, layout."""
@@ -455,7 +500,13 @@ def compose_for_lesson(lesson, out: Path, channel, content_type: str = "long",
     if plan is None:
         from .brand import style_text
 
-        plan = plan_for(lesson.title, style_text(str(getattr(channel, "id", "") or "_")), vertical)
+        try:
+            plan = plan_for(lesson.title, style_text(str(getattr(channel, "id", "") or "_")), vertical)
+        except Exception as exc:
+            # The AI writers can all be down at once (it happened: Gemini 503,
+            # Groq 403). The card keeps the channel's look anyway.
+            print(f"[future-thumb] headline writer unavailable ({str(exc)[:120]}); headline from the title")
+            plan = fallback_plan(lesson.title, vertical)
     if visual is None:
         visual = render_visual(plan["visual"], out.with_name("thumbnail_visual.jpg"), vertical)
     if visual is None:

@@ -146,6 +146,8 @@ class Settings:
     google_image_api_key: str = os.getenv("GOOGLE_IMAGE_API_KEY", "")
     google_image_cx: str = os.getenv("GOOGLE_IMAGE_CX", "")
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
+    # More free keys from OTHER Google projects (each its own daily quota).
+    gemini_extra_keys: str = ",".join(k for k in (os.getenv("GEMINI_API_KEY_2", ""), os.getenv("GEMINI_API_KEY_3", "")) if k)
     # How many freshly written kids topics to add each day, on top of the
     # built-in bank. 0 turns it off and the channel goes back to bank-only.
     kids_fresh_topics_per_day: int = int(os.getenv("KIDS_FRESH_TOPICS_PER_DAY", "2"))
@@ -159,7 +161,7 @@ class Settings:
     # Groq free tier is generous + fast (needs a free key). Pollinations text is
     # free and needs NO key, matching the free image path.
     groq_api_key: str = os.getenv("GROQ_API_KEY", "")
-    groq_model: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+    groq_model: str = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
     enable_pollinations_text: bool = os.getenv("ENABLE_POLLINATIONS_TEXT", "true").lower() == "true"
     youtube_client_secret_file: Path = ROOT / os.getenv("YOUTUBE_CLIENT_SECRET_FILE", "client_secret.json")
     youtube_token_file: Path = ROOT / os.getenv("YOUTUBE_TOKEN_FILE", "token.json")

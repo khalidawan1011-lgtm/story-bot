@@ -49,8 +49,14 @@ def _extract_json(text: str):
     return json.loads(text)
 
 
-def _gemini(prompt: str, model: str | None = None) -> dict:
-    key = settings.gemini_api_key
+def gemini_keys() -> list[str]:
+    """Every Gemini key: GEMINI_API_KEY, then GEMINI_API_KEY_2 / _3 (other projects, own quota)."""
+    keys = [settings.gemini_api_key] + [k.strip() for k in settings.gemini_extra_keys.split(",")]
+    return [k for i, k in enumerate(keys) if k and k not in keys[:i]]
+
+
+def _gemini(prompt: str, model: str | None = None, key: str | None = None) -> dict:
+    key = key or settings.gemini_api_key
     if not key:
         raise RuntimeError("GEMINI_API_KEY not set in .env")
     model = model or settings.gemini_model
@@ -87,6 +93,9 @@ def _groq_json(prompt: str) -> dict:
     body = json.dumps({
         "model": settings.groq_model,
         "temperature": 1.0,
+        # Without a cap Groq books the model's whole output length against the
+        # free 8,000 tokens/minute and answers 429 at once.
+        "max_tokens": 3500,
         "response_format": {"type": "json_object"},
         "messages": [
             {"role": "system", "content": "Return valid JSON only. Follow exact scene and word-count requirements."},
@@ -99,6 +108,9 @@ def _groq_json(prompt: str) -> dict:
         headers={
             "Content-Type": "application/json",
             "Authorization": f"Bearer {settings.groq_api_key}",
+            # Groq's edge refuses Python's default "Python-urllib" agent with a
+            # bare 403, which made the fallback fail whenever Gemini was down.
+            "User-Agent": "story-bot-studio/1.0",
         },
     )
     for attempt in range(1):
@@ -182,20 +194,19 @@ def _script_json(prompt: str) -> dict:
     flowing instead of failing the whole video.
     """
     errors: list[str] = []
-    if settings.gemini_api_key:
-        try:
-            return _gemini(prompt)
-        except Exception as exc:
-            errors.append(f"Gemini({settings.gemini_model}): {exc}")
-        # Each free Gemini model has its own daily quota, so the next one in
-        # the list often still answers when the first is used up.
-        for fallback_model in [m.strip() for m in settings.gemini_fallback_model.split(",") if m.strip()]:
-            if fallback_model == settings.gemini_model:
-                continue
-            try:
-                return _gemini(prompt, model=fallback_model)
-            except Exception as exc:
-                errors.append(f"Gemini({fallback_model}): {exc}")
+    keys = gemini_keys()
+    if keys:
+        # Each free Gemini model has its own daily quota, and each key (from its
+        # own Google project) has its own too: every model is tried with every
+        # key before the next provider.
+        models = [settings.gemini_model] + [m.strip() for m in settings.gemini_fallback_model.split(",")
+                                            if m.strip() and m.strip() != settings.gemini_model]
+        for model in models:
+            for number, key in enumerate(keys, start=1):
+                try:
+                    return _gemini(prompt, model=model, key=key)
+                except Exception as exc:
+                    errors.append(f"Gemini({model}, key {number}): {exc}")
     if settings.groq_api_key:
         try:
             return _groq_json(prompt)

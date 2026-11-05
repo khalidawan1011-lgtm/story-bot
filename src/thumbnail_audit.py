@@ -213,7 +213,9 @@ def thumbnail_for(channel, video: dict) -> Path:
                 github_artifacts.restore_run_files(own.parent)
             except Exception:
                 pass
-        if own.is_file() and check_thumbnail(own).ok:
+        from .style_match import style_ok
+
+        if own.is_file() and check_thumbnail(own).ok and style_ok(own, channel)[0]:
             return own
         content_type = row["content_type"] or content_type
     out = settings.root / "runs" / "thumbnail_audit" / f"{video['id']}.jpg"
@@ -229,7 +231,56 @@ def thumbnail_for(channel, video: dict) -> Path:
     check = check_thumbnail(made)
     if not check.ok:
         raise ThumbnailNotReady(check.summary)
+    from .style_match import style_ok
+
+    styled, problem = style_ok(made, channel)
+    if not styled:
+        raise ThumbnailNotReady(problem)
     return made
+
+
+def _own_card_off_style(channel, video_id: str) -> str:
+    """Why the bot's own card for a video is not in the channel's style ('' = fine or unknown)."""
+    from .style_match import DESIGNED_STYLES, style_ok
+
+    if str(getattr(channel, "thumbnail_style", "") or "") not in DESIGNED_STYLES:
+        return ""
+    row = _bot_row(video_id)
+    if row is None:
+        return ""
+    own = Path(str(row["thumbnail_path"] or ""))
+    if not own.is_file():
+        try:
+            from . import github_artifacts
+
+            github_artifacts.restore_run_files(own.parent)
+        except Exception:
+            return ""
+    if not own.is_file():
+        return ""
+    return style_ok(own, channel)[1]
+
+
+def _release_held(channel, video: dict) -> str | None:
+    """Release a bot video left private because its release was refused. None = nothing to do."""
+    if video.get("privacy") != "private" or video.get("publish_at"):
+        return None
+    row = _bot_row(video["id"])
+    if row is None or row["status"] not in ("uploaded", "scheduled", "thumbnail_pending") or not row["publish_at"]:
+        return None  # not held by the bot: a video you made private yourself stays private
+    from .youtube_upload import can_manage, release_video
+
+    if not can_manage(channel.token_path):
+        return "held private; reconnect the channel on the dashboard so the bot may release it"
+    when = release_video(f"https://www.youtube.com/watch?v={video['id']}", channel, row["publish_at"])
+    from .db import mark_scheduled, mark_uploaded
+
+    url = f"https://www.youtube.com/watch?v={video['id']}"
+    if when is not None:
+        mark_scheduled(int(row["id"]), url, when.isoformat())
+        return f"released: scheduled for {when.isoformat()}"
+    mark_uploaded(int(row["id"]), url)
+    return "released: public now"
 
 
 def audit(days: int = 7, fix: bool = True, channel_id: str | None = None) -> list[str]:
@@ -255,11 +306,34 @@ def audit(days: int = 7, fix: bool = True, channel_id: str | None = None) -> lis
             except Exception as exc:
                 messages.append(f"{tag} could not list the channel's videos: {exc}")
                 continue
-            fixes, counts = 0, {"custom": 0, "missing": 0, "unknown": 0, "fixed": 0}
+            fixes, counts = 0, {"custom": 0, "missing": 0, "unknown": 0, "fixed": 0, "restyled": 0}
             for video in videos:
                 state = thumbnail_state(video["id"])
                 kind = "Short" if video["short"] else "long"
                 label = f"{tag} {video['id']} ({kind}) '{video['title'][:50]}'"
+                if state == "unknown":
+                    try:
+                        note = _release_held(channel, video)
+                    except Exception as exc:
+                        note = f"release FAILED: {str(exc)[:140]}"
+                    if note:
+                        messages.append(f"{label}: {note}")
+                if state == "custom":
+                    fixed_at, _ = _previous(video["id"])
+                    off = "" if fixed_at else _own_card_off_style(channel, video["id"])
+                    if off and fix and thumbnail_upload_allowed(base.id) and fixes < MAX_FIXES_PER_CHANNEL:
+                        # A card from before the style (or a plain fallback): put the styled one on.
+                        try:
+                            path = thumbnail_for(channel, video)
+                            set_thumbnail(video["id"], path, attempts=2, client_secret_file=channel.client_secret_path,
+                                          token_file=channel.token_path)
+                            fixes += 1
+                            counts["restyled"] += 1
+                            _record(video["id"], base.id, video["title"], "fixed", f"restyled: {off[:200]}", fixed=True)
+                            messages.append(f"{label}: thumbnail was not in the channel's style, replaced")
+                            continue
+                        except Exception as exc:
+                            messages.append(f"{label}: restyle FAILED: {str(exc)[:160]}")
                 if state != "missing":
                     counts[state] += 1
                     _record(video["id"], base.id, video["title"], state,
@@ -311,6 +385,7 @@ def audit(days: int = 7, fix: bool = True, channel_id: str | None = None) -> lis
             messages.append(
                 f"{tag} checked {len(videos)} video(s) from the last {days} days: "
                 f"{counts['custom']} with thumbnail, {counts['fixed']} fixed now, "
+                f"{counts['restyled']} put in the channel's style, "
                 f"{counts['missing'] - counts['fixed']} still missing, {counts['unknown']} not public yet"
             )
     return messages

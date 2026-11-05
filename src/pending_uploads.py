@@ -428,8 +428,21 @@ def reapply_thumbnails(hours: float = 30) -> list[str]:
     finally:
         conn.close()
     messages = []
+    restyled = set()
+    conn = sqlite3.connect(settings.db_path)
+    try:
+        restyled = {r[0] for r in conn.execute(
+            "SELECT video_id FROM thumbnail_audit WHERE COALESCE(note, '') LIKE 'restyled%'")}
+    except sqlite3.OperationalError:
+        pass
+    finally:
+        conn.close()
     for row_id, channel_id, url, thumb, status in rows:
         video_id = str(url).rsplit("v=", 1)[-1].split("&")[0]
+        if video_id in restyled:
+            # The audit replaced an off-style card; putting the old file back would undo it.
+            messages.append(f"[{channel_id}] {video_id}: restyled by the audit, left as it is")
+            continue
         path = Path(str(thumb or ""))
         if not path.is_file() and status == "thumbnail_pending":
             # A thumbnail that failed on an earlier run: its card comes back from
@@ -667,7 +680,7 @@ def _process_row(row: sqlite3.Row, *, bypass_safety_cap: bool = False) -> str:
         if thumbnail_required():
             try:
                 thumbnail_path = ensure_ready(
-                    thumbnail_path, regenerate=lambda: remake_thumbnail_file(row, channel),
+                    thumbnail_path, regenerate=lambda: remake_thumbnail_file(row, channel), channel=channel,
                 )
             except ThumbnailNotReady as exc:
                 _hold(video_id, row, f"Held: thumbnail not ready ({exc}). Press 'Remake thumbnail'.")
@@ -685,7 +698,9 @@ def _process_row(row: sqlite3.Row, *, bypass_safety_cap: bool = False) -> str:
             set_thumbnail(youtube_id, thumbnail_path,
                           client_secret_file=channel.client_secret_path,
                           token_file=channel.token_path)
-            if thumbnail_required():
+            from .youtube_upload import can_manage
+
+            if thumbnail_required() and can_manage(channel.token_path):
                 from .youtube_upload import release_video
 
                 try:

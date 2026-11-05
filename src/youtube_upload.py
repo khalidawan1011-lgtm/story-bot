@@ -20,6 +20,10 @@ SCOPES = [
     "https://www.googleapis.com/auth/youtube.upload",
     "https://www.googleapis.com/auth/youtube.readonly",  # read the connected channel's name to verify it
 ]
+# Asked for when a channel is (re)connected: also lets the bot change a video's
+# privacy (release a video held private until its thumbnail is set).
+MANAGE_SCOPE = "https://www.googleapis.com/auth/youtube.force-ssl"
+CONNECT_SCOPES = [*SCOPES, MANAGE_SCOPE]
 
 
 # YouTube refuses a description over 5000 bytes or with < or > in it
@@ -53,7 +57,9 @@ def _credentials(client_secret_file: Path | None = None, token_file: Path | None
     token_file = token_file or settings.youtube_token_file
     creds = None
     if token_file.exists():
-        creds = Credentials.from_authorized_user_file(str(token_file), SCOPES)
+        # The scopes this login was granted (an older login has no MANAGE_SCOPE;
+        # asking a refresh for more than was granted would fail).
+        creds = Credentials.from_authorized_user_file(str(token_file))
     if creds and creds.expired and creds.refresh_token:
         creds.refresh(Request())
     if not creds or not creds.valid:
@@ -68,10 +74,21 @@ def _credentials(client_secret_file: Path | None = None, token_file: Path | None
                 "cannot open a browser. Connect the channel on your PC first, "
                 "then re-run scripts/setup_github_actions.py."
             )
-        flow = InstalledAppFlow.from_client_secrets_file(str(client_secret_file), SCOPES)
+        flow = InstalledAppFlow.from_client_secrets_file(str(client_secret_file), CONNECT_SCOPES)
         creds = flow.run_local_server(port=0)
         token_file.write_text(creds.to_json(), encoding="utf-8")
     return creds
+
+
+def can_manage(token_file: Path | None) -> bool:
+    """True when this login may change a video's privacy (MANAGE_SCOPE or full youtube)."""
+    import json as _json
+
+    try:
+        scopes = set(_json.loads(Path(token_file).read_text(encoding="utf-8")).get("scopes") or [])
+    except Exception:
+        return False
+    return bool(scopes & {MANAGE_SCOPE, "https://www.googleapis.com/auth/youtube"})
 
 
 def _youtube(client_secret_file: Path | None = None, token_file: Path | None = None):
@@ -152,7 +169,21 @@ def upload_video(video_path: Path, thumbnail_path: Path, metadata: dict[str, obj
         check = check_thumbnail(thumbnail_path)
         if not check.ok:
             raise ThumbnailNotReady(f"thumbnail failed its check: {check.summary}")
-        status_body = {"privacyStatus": "private", "selfDeclaredMadeForKids": made_for_kids}
+        if can_manage(token_file):
+            # Up private, thumbnail, then released (scheduled / public).
+            status_body = {"privacyStatus": "private", "selfDeclaredMadeForKids": made_for_kids}
+        else:
+            # This login cannot change privacy later, so a held video could never
+            # be released. Upload it already scheduled (private until then) and
+            # set the thumbnail right away; publishAt is at least an hour ahead,
+            # which leaves the end-of-run thumbnail pass time to retry.
+            if "publishAt" not in final_status:
+                final_status = {**final_status, "privacyStatus": "private",
+                                "publishAt": (datetime.now(timezone.utc) + timedelta(hours=1))
+                                .isoformat().replace("+00:00", "Z")}
+            status_body = final_status
+            print("[upload] this YouTube login cannot change privacy; uploading scheduled. "
+                  "Reconnect the channel on the dashboard to keep videos private until their thumbnail is on.")
 
     youtube = _youtube(client_secret_file, token_file)
     request = youtube.videos().insert(
@@ -216,6 +247,9 @@ def release_video(video_url: str, channel, publish_at: str | datetime | None) ->
         when = datetime.fromisoformat(when.replace("Z", "+00:00"))
     if isinstance(when, datetime) and when.tzinfo is None:
         when = when.replace(tzinfo=timezone.utc)
+    if not can_manage(channel.token_path):
+        raise RuntimeError("this YouTube login cannot change a video's privacy: reconnect the channel on the "
+                           "dashboard (Connect & verify) to give the bot that permission")
     status: dict[str, object] = {"selfDeclaredMadeForKids": bool(channel.made_for_kids)}
     # publishAt must lie ahead; a slot that passed while the video waited goes live now.
     if isinstance(when, datetime) and when > datetime.now(timezone.utc) + timedelta(minutes=10):

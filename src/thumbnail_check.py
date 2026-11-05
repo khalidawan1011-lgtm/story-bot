@@ -110,15 +110,22 @@ def _shrink_to_limit(path: Path) -> None:
 
 
 def ensure_ready(path: str | Path | None,
-                 regenerate: Callable[[], Path | str | None] | None = None) -> Path:
-    """Return a thumbnail that passes the checks, fixing it once if possible."""
+                 regenerate: Callable[[], Path | str | None] | None = None, channel=None) -> Path:
+    """Return a thumbnail that passes the checks, fixing it once if possible.
+
+    With `channel`, a channel that has a designed style of its own also needs
+    the card to be in that style (style_match.style_ok): a plain fallback card
+    made while the AI writers were down is remade, never uploaded."""
+    from .style_match import style_ok
+
     result = check_thumbnail(path)
     if not result.ok and path and Path(path).is_file() and result.kb * 1024 > MAX_BYTES:
         _shrink_to_limit(Path(path))
         result = check_thumbnail(path)
-    if result.ok:
+    styled, style_problem = (True, "") if (not result.ok or channel is None) else style_ok(path, channel)
+    if result.ok and styled:
         return Path(path)
-    first_problem = result.summary
+    first_problem = result.summary if not result.ok else style_problem
     if regenerate is not None:
         try:
             fresh = regenerate()
@@ -126,8 +133,10 @@ def ensure_ready(path: str | Path | None,
             raise ThumbnailNotReady(f"{first_problem}; remaking it failed: {exc}") from exc
         if fresh:
             again = check_thumbnail(fresh)
-            if again.ok:
+            fresh_styled, fresh_problem = (True, "") if (not again.ok or channel is None) else style_ok(fresh, channel)
+            if again.ok and fresh_styled:
                 print(f"[thumbnail] remade after a failed check ({first_problem})")
                 return Path(fresh)
-            raise ThumbnailNotReady(f"{first_problem}; the remade one also failed: {again.summary}")
+            raise ThumbnailNotReady(f"{first_problem}; the remade one also failed: "
+                                    f"{again.summary if not again.ok else fresh_problem}")
     raise ThumbnailNotReady(first_problem)

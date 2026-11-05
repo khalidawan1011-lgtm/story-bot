@@ -429,6 +429,7 @@ def run_pipeline(
             regenerate=lambda: create_thumbnail(
                 lesson, thumbnail_source, run_dir / "thumbnail_remade.jpg", channel, content_type,
             ),
+            channel=channel,
         )
     except ThumbnailNotReady as exc:
         thumbnail_problem = str(exc)

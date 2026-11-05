@@ -53,16 +53,23 @@ def measure(path: str | Path) -> dict:
         zone[: int(h * 0.5), :] = 1
     else:
         zone[:, : int(w * 0.62)] = 1
-    count, _, stats, _ = cv2.connectedComponentsWithStats(orange * zone, connectivity=8)
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(orange * zone, connectivity=8)
     bar_h = bar_w = 0.0
     off_edge = False
     if count > 1:
         biggest = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
-        bar_w = stats[biggest, cv2.CC_STAT_WIDTH] / w
-        bar_h = stats[biggest, cv2.CC_STAT_HEIGHT] / h
-        left = stats[biggest, cv2.CC_STAT_LEFT]
+        blob = labels == biggest
+        # Only the solid rows are the bar: orange lights in the picture behind
+        # can join the blob, but they never fill half a row like the bar does.
+        per_row = blob.sum(axis=1)
+        solid = np.where(per_row >= 0.5 * per_row.max())[0]
+        lefts = [int(np.argmax(blob[row])) for row in solid]
+        rights = [w - 1 - int(np.argmax(blob[row][::-1])) for row in solid]
+        left, right = int(np.median(lefts)), int(np.median(rights))
+        bar_w = (right - left + 1) / w
+        bar_h = len(solid) / h
         # A bar cut by the card's edge looks like a mistake (the examples keep a margin).
-        right_cut = left + stats[biggest, cv2.CC_STAT_WIDTH] >= w
+        right_cut = right >= w - 1
         # A long card's bar may bleed off the left side (the examples do); never off the right.
         off_edge = (left <= 0 or right_cut) if tall else right_cut
     ivory = ((r > 205) & (g > 205) & (b > 195) & (abs(r - b) < 40)).astype(np.uint8)
@@ -129,3 +136,27 @@ def compare(path: str | Path, channel_id: str) -> dict:
         score = min(score, 30)  # a cut-off bar or headline is never acceptable, whatever the sizes
     return {"ok": not issues, "score": score, "issues": issues, "ratios": ratios,
             "examples": ref["count"]}
+
+
+# Channels whose thumbnails are drawn in a designed look of their own.
+DESIGNED_STYLES = {"future"}
+PASS_SCORE = 60
+
+
+def style_ok(path, channel) -> tuple[bool, str]:
+    """Is this card in the channel's own designed style? (True, '') when the
+    channel has no designed style or no examples to compare with."""
+    style = str(getattr(channel, "thumbnail_style", "") or "")
+    if style not in DESIGNED_STYLES:
+        return True, ""
+    try:
+        check = compare(path, str(getattr(channel, "id", "") or "_"))
+    except Exception as exc:
+        return False, f"style could not be measured ({exc})"
+    if check.get("score") is None:
+        return True, ""
+    edge = any("edge" in issue for issue in check["issues"])
+    if check["score"] < PASS_SCORE or edge:
+        return False, (f"not in the channel's {style} style (score {check['score']}: "
+                       f"{'; '.join(check['issues']) or 'different design'})")
+    return True, ""

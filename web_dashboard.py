@@ -1226,7 +1226,7 @@ def _signin_email(credentials) -> str:
 def _oauth_flow(target, redirect_uri: str):
     from google_auth_oauthlib.flow import InstalledAppFlow
 
-    from src.youtube_upload import SCOPES
+    from src.youtube_upload import CONNECT_SCOPES as SCOPES
 
     # The email scopes are asked for here only, so the dashboard can show which
     # Gmail a channel is signed in with. Uploads keep refreshing with SCOPES,

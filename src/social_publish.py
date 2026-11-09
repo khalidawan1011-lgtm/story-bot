@@ -171,6 +171,7 @@ def verify_facebook(channel_id: str) -> str:
             f"https://graph.facebook.com/{FB_API_VERSION}/debug_token?"
             + urlencode({"input_token": token, "access_token": token})
         ).get("data") or {}
+        _remember_owner(channel_id, debug)
         if str(debug.get("type", "")).upper() != "PAGE":
             raise RuntimeError(
                 f"This is the personal account '{data.get('name', '')}', not a Page: its USER token "
@@ -183,6 +184,38 @@ def verify_facebook(channel_id: str) -> str:
     name = str(data.get("name") or data.get("id") or "Facebook Page")
     mark_verified(channel_id, "facebook", name)
     return name
+
+
+def _remember_owner(channel_id: str, debug: dict, user_token: str = "") -> None:
+    """Save which Facebook account made this Page's token, and through which Meta app.
+
+    The dashboard shows them so it is clear whose account the connection hangs
+    on. The account's name is only readable with that person's own token, so a
+    Page token pasted by hand keeps just the ID. Never fails a connect."""
+    from .social_accounts import save_account
+
+    values: dict[str, str] = {}
+    if debug.get("user_id"):
+        values["owner_id"] = str(debug["user_id"])
+    if debug.get("app_id"):
+        values["app_id"] = str(debug["app_id"])
+    if debug.get("application"):
+        values["app_name"] = str(debug["application"])
+    if user_token:
+        try:
+            me = _request_json(f"https://graph.facebook.com/{FB_API_VERSION}/me?"
+                               + urlencode({"fields": "id,name", "access_token": user_token}))
+            values["owner_id"] = str(me.get("id") or values.get("owner_id", ""))
+            values["owner_name"] = str(me.get("name") or "")
+        except Exception:
+            pass
+    if values.get("owner_id") and "owner_name" not in values             and values["owner_id"] != account(channel_id, "facebook").get("owner_id"):
+        values["owner_name"] = "-"  # a different person now: their name is not known
+    if values:
+        try:
+            save_account(channel_id, "facebook", values)
+        except Exception:
+            pass
 
 
 def _plain(text: object) -> str:
@@ -265,6 +298,14 @@ def facebook_from_user_token(channel_id: str, user_token: str, page_id: str = ""
                            f"'Page ID (only if asked)' and press again: {listing}")
     save_account(channel_id, "facebook", {"page_id": page["id"], "page_access_token": page["access_token"]})
     name = verify_facebook(channel_id)
+    try:
+        user_debug = _request_json(
+            f"https://graph.facebook.com/{FB_API_VERSION}/debug_token?"
+            + urlencode({"input_token": user_token, "access_token": page["access_token"]})
+        ).get("data") or {}
+    except Exception:
+        user_debug = {}
+    _remember_owner(channel_id, user_debug, user_token)
     debug = _request_json(
         f"https://graph.facebook.com/{FB_API_VERSION}/debug_token?"
         + urlencode({"input_token": page["access_token"], "access_token": page["access_token"]})

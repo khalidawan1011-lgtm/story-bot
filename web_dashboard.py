@@ -24,7 +24,7 @@ from flask import Flask, request, redirect, url_for, send_file, render_template_
 
 from src.config import dashboard_automation_on, set_dashboard_automation, settings
 from src.channels import load_channels, get_channel
-from src import channel_factory, setup_guide, slots
+from src import channel_factory, github_identity, setup_guide, slots
 from src.language import LANGUAGES
 from src.daily_runner import (
     run_daily_batch, run_long_batch, run_long_video, run_offline_buffer,
@@ -358,6 +358,7 @@ def home():
         quick_steps=setup_guide.QUICK_STEPS,
         branding=setup_guide.BRANDING, languages=LANGUAGES, automation_on=dashboard_automation_on(),
         social=social_accounts.public_status(ch.id), social_uploads=social_uploads_for_channel(ch.id),
+        github=github_identity.identity(),
         stats={"topics": len(topics), "videos": len(vids), "uploaded": uploaded,
                "today": videos_generated_today_count(ch.id)},
     )
@@ -1667,6 +1668,17 @@ def automation_toggle():
     return redirect(url_for("home", channel=ch.id))
 
 
+@app.post("/github-identity/refresh")
+def github_identity_refresh():
+    ch = current_channel()
+    info = github_identity.identity(refresh=True)
+    if info.get("error"):
+        flash(info["error"], "error")
+    else:
+        flash(f"GitHub account: {info.get('login')} ({info.get('email') or 'no public email'})", "ok")
+    return redirect(url_for("home", channel=ch.id))
+
+
 @app.post("/github-sync")
 def github_sync():
     ch = current_channel()
@@ -2228,6 +2240,7 @@ PAGE = r"""
     <div class="conn-card {{ 'ok' if fb_ok else ('warn' if social.facebook.configured else 'off') }}">
       <div class="conn-top"><span class="conn-name">Facebook Page</span><span class="conn-pill">{{ '✅ Connected' if fb_ok else ('⚠️ Verify karein' if social.facebook.configured else '❌ Not connected') }}</span></div>
       <div class="conn-who">{{ social.facebook.verified_name if fb_ok else ('Page ID saved, abhi verify nahi hua' if social.facebook.configured else 'Optional') }}</div>
+      {{ fb_owner_line() }}
       <div class="conn-auto">{% if fb_ok and social.facebook.auto_upload %}Auto post ON &middot; chalta hai: {{ social.facebook_places.get(social.facebook_place, social.facebook_place) }}{% elif fb_ok %}Auto post OFF (sirf button se){% else %}Kuch post nahi hota{% endif %}</div>
       <button type="button" class="{{ 'ghost' if fb_ok else 'green' }} sm" onclick="openPlatform('facebook')">{{ 'Settings' if fb_ok else 'Setup required →' }}</button>
     </div>
@@ -2240,7 +2253,27 @@ PAGE = r"""
       <div class="conn-auto">{% if not tt_ok %}Kuch post nahi hota{% elif not tt.auto_upload %}Auto post OFF (sirf button se){% elif tt.mode == 'zernio' %}Auto PUBLIC post ON (Zernio){% elif tt.mode == 'private' %}Auto: private post (aap public karein){% else %}Auto: TikTok drafts mein{% endif %}</div>
       <button type="button" class="{{ 'ghost' if tt_ok else 'green' }} sm" onclick="openPlatform('tiktok')">{{ 'Settings' if tt_ok else 'Setup required →' }}</button>
     </div>
+    {# GitHub #}
+    {% set gh_ok = github.login and not github.warning %}
+    <div class="conn-card {{ 'ok' if gh_ok else ('warn' if github.login else 'bad') }}">
+      <div class="conn-top"><span class="conn-name">GitHub</span><span class="conn-pill">{{ '✅ Connected' if gh_ok else ('⚠️ Check karein' if github.login else '❌ Not signed in') }}</span></div>
+      {% if github.login %}
+      <div class="conn-who" style="display:flex;gap:8px;align-items:center">{% if github.avatar %}<img src="{{github.avatar}}" alt="" width="28" height="28" style="border-radius:50%">{% endif %}<span><a href="{{github.url}}" target="_blank"><b>{{github.login}}</b></a>{% if github.name %} &middot; {{github.name}}{% endif %}<br><span class="email">{{ github.email or 'email public nahi (GitHub → Settings → Public email)' }}</span></span></div>
+      {% else %}<div class="conn-who">{{ github.error or 'GitHub CLI signed in nahi' }}</div>{% endif %}
+      <div class="conn-auto">{% if github.repo %}Repo: <a href="{{github.repo_url}}" target="_blank">{{github.repo}}</a>{% endif %}{% if github.warning %}<br><span style="color:var(--warn)">{{github.warning}}</span>{% endif %}</div>
+      <form method="post" action="/github-identity/refresh"><input type="hidden" name="channel" value="{{ch.id}}"><button class="ghost sm" type="submit">↻ Refresh</button></form>
+    </div>
   </div>
+  {% endmacro %}
+
+  {% macro fb_owner_line() %}
+    {% set fb = social.facebook %}
+    {% if fb.owner_id or fb.app_name %}
+    <div class="conn-auto" style="flex:0">
+      {% if fb.owner_id %}👤 Facebook account: <b>{{ fb.owner_name if fb.owner_name and fb.owner_name != '-' else 'naam pata nahi' }}</b> &middot; ID <code>{{fb.owner_id}}</code>{% endif %}
+      {% if fb.app_name %}<br>🧩 Meta app: <b>{{fb.app_name}}</b>{% if fb.app_id %} &middot; ID <code>{{fb.app_id}}</code>{% endif %}{% endif %}
+    </div>
+    {% endif %}
   {% endmacro %}
 
   {% macro post_targets() %}
@@ -2527,7 +2560,7 @@ PAGE = r"""
       </li>
       <li class="{{'done' if setup.github else ''}}">
         <b>{{'✅' if setup.github else '3️⃣'}} Sent to GitHub</b>
-        <span class="hint">{% if setup.github %}GitHub has every channel and login from this PC.{% else %}Something changed on this PC (a channel, login or key) that the daily run does not have yet.{% endif %}</span>
+        <span class="hint">{% if github.login %}Account: <b>{{github.login}}</b>{% if github.email %} (<b class="email">{{github.email}}</b>){% endif %}{% if github.repo %} &middot; repo {{github.repo}}{% endif %}.<br>{% endif %}{% if setup.github %}GitHub has every channel and login from this PC.{% else %}Something changed on this PC (a channel, login or key) that the daily run does not have yet.{% endif %}</span>
         {% if not setup.github %}<form method="post" action="/github-sync" style="margin-top:6px"><input type="hidden" name="channel" value="{{ch.id}}"><button class="green sm" type="submit">⬆ Send to GitHub</button></form>{% endif %}
       </li>
     </ol>
@@ -2716,7 +2749,7 @@ PAGE = r"""
     </div>
 
     <div class="platform-panel" id="platform-facebook">
-      <div class="row" style="justify-content:space-between"><div><strong>Facebook Page</strong> {% if social.facebook.configured and social.facebook.verified_name %}<span class="chip" style="background:rgba(61,220,151,.18);color:var(--ok);border-color:rgba(61,220,151,.5)">✅ Connected: {{social.facebook.verified_name}}</span>{% if social.facebook.auto_upload %} <span class="chip" style="color:var(--ok)">auto-publish ON</span>{% else %} <span class="chip">auto-publish off</span>{% endif %}{% elif social.facebook.configured %}<span class="chip" style="color:var(--warn)">⚠ Saved, abhi connect nahi: Save &amp; Connect dabayein</span>{% else %}<span class="chip">setup required</span>{% endif %}<div class="hint">Shorts publish as Page Reels; long videos publish as Page videos.</div></div><a href="{{social.guides.facebook_app}}" target="_blank"><button class="ghost sm" type="button">Create Meta App</button></a></div>
+      <div class="row" style="justify-content:space-between"><div><strong>Facebook Page</strong> {% if social.facebook.configured and social.facebook.verified_name %}<span class="chip" style="background:rgba(61,220,151,.18);color:var(--ok);border-color:rgba(61,220,151,.5)">✅ Connected: {{social.facebook.verified_name}}</span>{% if social.facebook.auto_upload %} <span class="chip" style="color:var(--ok)">auto-publish ON</span>{% else %} <span class="chip">auto-publish off</span>{% endif %}{% elif social.facebook.configured %}<span class="chip" style="color:var(--warn)">⚠ Saved, abhi connect nahi: Save &amp; Connect dabayein</span>{% else %}<span class="chip">setup required</span>{% endif %}<div class="hint">Shorts publish as Page Reels; long videos publish as Page videos.</div>{{ fb_owner_line() }}</div><a href="{{social.guides.facebook_app}}" target="_blank"><button class="ghost sm" type="button">Create Meta App</button></a></div>
       <form method="post" action="/social-settings" style="margin-top:14px">
         <input type="hidden" name="channel" value="{{ch.id}}"><input type="hidden" name="platform" value="facebook">
         <div class="platform-grid">

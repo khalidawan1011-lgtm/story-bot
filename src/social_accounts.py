@@ -98,7 +98,8 @@ def save_account(channel_id: str, platform: str, values: dict[str, object]) -> d
     if platform not in {"facebook", "tiktok"}:
         raise ValueError("Unsupported social platform")
     allowed = {
-        "facebook": {"page_id", "page_access_token", "auto_upload", "language", "daily_post"},
+        "facebook": {"page_id", "page_access_token", "auto_upload", "language", "daily_post",
+                     "owner_id", "owner_name", "app_id", "app_name"},
         "tiktok": {"client_key", "client_secret", "access_token", "refresh_token", "mode", "privacy", "auto_upload",
                    "zernio_api_key", "zernio_account_id", "zernio_username"},
     }[platform]
@@ -148,6 +149,10 @@ def public_status(channel_id: str) -> dict:
             "page_id": fb.get("page_id", ""),
             "auto_upload": bool(fb.get("auto_upload")),
             "verified_name": fb.get("verified_name", ""),
+            "owner_id": fb.get("owner_id", ""),
+            "owner_name": fb.get("owner_name", ""),
+            "app_id": fb.get("app_id", ""),
+            "app_name": fb.get("app_name", ""),
             "language": fb.get("language", "same") or "same",
             "daily_post": bool(fb.get("daily_post")),
         },

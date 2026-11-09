@@ -12,10 +12,12 @@ fastest and safest way is to copy the code, not to rebuild it:
 # in the OTHER bot's folder
 git remote add chrono https://github.com/worldvalorchronicles-ui/story-bot.git
 git fetch chrono
-git cherry-pick 3c7d49e 5f121ac 53d3711 8ae0698 26cfa19 8475fde 38d0ec7 0035e0f 6ac16c5 ef8f1c5 9309e06
+git cherry-pick 2f6cb29 b2e945f dccb160 c7cf1ad f67cbd3 8776662 0752dc4 ac961e1 1a18aab 414c4fc 39ce1a1 5b3bc84 196b125 2bbc982 cffd869 e03bde0 882628d d66cfe6
 ```
 
-Skip the Chronovanta-only commits (a93e520, 31a42d0, cab0ebe): they hold this
+The last seven are the fixes found in the first real runs (thumbnail
+style and Shorts-shelf checks, releasing private videos, Gemini/Groq/
+Pollinations fallbacks, artifact storage). Skip the Chronovanta-only commits (c7696db, 70505dc, 4ad3328): they hold this
 channel's settings. If a cherry-pick conflicts, give the prompt of that
 feature (below) to Claude Code in the other bot instead.
 

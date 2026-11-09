@@ -64,8 +64,23 @@ def pollinations_image_ready() -> bool:
     return settings.enable_pollinations_images
 
 
+_POLLINATIONS_KEY_SPENT = False
+
+
+def pollinations_key_spent(exc=None) -> bool:
+    """Remember for this run that the key's budget is gone (HTTP 402): every later
+    Pollinations call then uses the free keyless endpoint instead."""
+    global _POLLINATIONS_KEY_SPENT
+    if getattr(exc, "code", None) == 402 and not _POLLINATIONS_KEY_SPENT:
+        _POLLINATIONS_KEY_SPENT = True
+        print("[pollinations] the key's budget is used up (HTTP 402); using the free keyless endpoint")
+    return _POLLINATIONS_KEY_SPENT
+
+
 def pollinations_api_key() -> str:
     """Read an optional free Pollinations key without requiring an app restart."""
+    if _POLLINATIONS_KEY_SPENT:
+        return ""
     env_key = getattr(settings, "pollinations_api_key", "")
     if env_key:
         return env_key.strip()
@@ -74,6 +89,14 @@ def pollinations_api_key() -> str:
         return key_file.read_text(encoding="utf-8").strip()
     except OSError:
         return ""
+
+
+def pollinations_model() -> str:
+    """The Pollinations image model. "zimage" became paid (HTTP 402) in Nov 2026;
+    "flux" stays free, with or without a key. POLLINATIONS_MODEL overrides it."""
+    import os
+
+    return (os.getenv("POLLINATIONS_MODEL") or "flux").strip()
 
 
 def pollinations_key_configured() -> bool:
@@ -1106,15 +1129,15 @@ def _generate_pollinations_scene_image(scene: Scene, output_path: Path, channel=
     # stuck forever behind its provider marker.
     best_data: bytes | None = None
     last_error = "no attempts"
-    key = pollinations_api_key()
     for i in range(max(1, attempts)):
+        key = pollinations_api_key()
         seed = (base_seed + i * 97) % 1_000_000
         params = urllib.parse.urlencode(
             {
                 "width": "1920" if landscape else "1080",
                 "height": "1080" if landscape else "1920",
                 "seed": str(seed),
-                "model": "zimage" if key else "flux",
+                "model": pollinations_model(),
                 "enhance": "true",
                 "nologo": "true",
                 "safe": "true",
@@ -1132,6 +1155,8 @@ def _generate_pollinations_scene_image(scene: Scene, output_path: Path, channel=
                 content_type = response.headers.get("Content-Type", "")
         except urllib.error.HTTPError as exc:
             last_error = f"HTTP {exc.code}"
+            if pollinations_key_spent(exc) and key:
+                continue  # the next try goes keyless
             if exc.code in (429, 503) and i + 1 < max(1, attempts):
                 retry_after = exc.headers.get("Retry-After", "") if exc.headers else ""
                 try:

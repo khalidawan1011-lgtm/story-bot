@@ -76,6 +76,8 @@ def main() -> None:
                      help="Own client_secret file for a separate upload quota (optional)")
 
     sub.add_parser("reapply-thumbnails", help="Set today's thumbnails again on YouTube (end of a daily run).")
+    keep = sub.add_parser("keep-pending", help="Copy the files of videos not yet on YouTube into a folder (the run's artifact).")
+    keep.add_argument("--to", default="keep", help="Folder to copy them into.")
     comp = sub.add_parser("competitors", help="Read competitor channels and show their best recent topics.")
     comp.add_argument("--channel", required=True, help="Our channel id.")
     comp.add_argument("--add", default="", help="Comma-separated competitor URLs/@handles to save first.")
@@ -369,6 +371,14 @@ def main() -> None:
         for message in audit(days=int(args.days), fix=str(args.fix).lower() != "false",
                              channel_id=args.channel or None):
             print(message)
+        return
+    elif args.command == "keep-pending":
+        from pathlib import Path as _Path
+        from .pending_uploads import keep_pending_files
+        kept = keep_pending_files(_Path(args.to))
+        print(f"Kept {len(kept)} file(s) of videos still waiting for YouTube:")
+        for name in kept:
+            print("  " + name)
         return
     elif args.command == "reapply-thumbnails":
         from .pending_uploads import reapply_thumbnails

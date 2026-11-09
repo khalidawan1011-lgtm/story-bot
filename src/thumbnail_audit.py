@@ -48,6 +48,24 @@ def _picture(video_id: str, name: str):
     return None if image is None else cv2.resize(image, (48, 36), interpolation=cv2.INTER_AREA).astype(float)
 
 
+def shorts_card_shown(video_id: str) -> bool | None:
+    """Does the Shorts shelf have the custom thumbnail? None when it cannot be told.
+
+    The Shorts lists do not use hqdefault but sardefault.jpg, YouTube's own
+    copy of the custom thumbnail for Shorts. A thumbnail set within the first
+    minutes of an upload can land on hqdefault but never make that copy, and the
+    shelf then shows a video frame. Setting the thumbnail again makes it."""
+    request = urllib.request.Request(f"https://i.ytimg.com/vi/{video_id}/sardefault.jpg",
+                                     headers={"User-Agent": "Mozilla/5.0 story-bot-studio"})
+    try:
+        with urllib.request.urlopen(request, timeout=20):
+            return True
+    except urllib.error.HTTPError as exc:
+        return False if exc.code == 404 else None
+    except Exception:
+        return None
+
+
 def thumbnail_state(video_id: str) -> str:
     """'custom', 'missing' (YouTube shows one of its own frames) or 'unknown' (not public yet)."""
     shown = _picture(video_id, "hqdefault")
@@ -319,6 +337,11 @@ def audit(days: int = 7, fix: bool = True, channel_id: str | None = None) -> lis
                 state = thumbnail_state(video["id"])
                 kind = "Short" if video["short"] else "long"
                 label = f"{tag} {video['id']} ({kind}) '{video['title'][:50]}'"
+                if (state == "custom" and video["short"] and video.get("privacy") == "public"
+                        and shorts_card_shown(video["id"]) is False):
+                    # Custom thumbnail on the video, but the Shorts lists show a frame.
+                    messages.append(f"{label}: the Shorts lists show a frame instead of the thumbnail; setting it again")
+                    state = "missing"
                 if state == "unknown":
                     # A held video gets a card in the channel's style before it goes out.
                     fixed_at, _ = _previous(video["id"])

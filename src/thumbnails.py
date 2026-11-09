@@ -368,16 +368,13 @@ def generate_cloudflare_thumbnail(lesson: Lesson, output_path: Path, channel=Non
 
 def generate_pollinations_thumbnail(lesson: Lesson, output_path: Path, channel=None,
                                     content_type: str = "short", attempts: int = 3) -> Path:
-    from .image_assets import pollinations_api_key
+    from .image_assets import pollinations_api_key, pollinations_model
 
     from .image_assets import _POLLINATIONS_SEMAPHORE
 
+    from .image_assets import pollinations_key_spent
+
     prompt = urllib.parse.quote(build_thumbnail_prompt(lesson, channel, content_type))
-    key = pollinations_api_key()
-    base_url = "https://gen.pollinations.ai/image" if key else "https://image.pollinations.ai/prompt"
-    headers = {"User-Agent": "KidsLearningBot/1.0"}
-    if key:
-        headers["Authorization"] = f"Bearer {key}"
 
     # Keep the largest (most detailed) result across attempts rather than
     # throwing away a thin-but-usable image and ending with nothing.
@@ -391,11 +388,16 @@ def generate_pollinations_thumbnail(lesson: Lesson, output_path: Path, channel=N
             "width": "1280",
             "height": "720",
             "seed": str(random.randint(0, 1_000_000)),
-            "model": "zimage" if key else "flux",
+            "model": pollinations_model(),
             "enhance": "true",
             "nologo": "true",
             "safe": "true",
         })
+        key = pollinations_api_key()
+        base_url = "https://gen.pollinations.ai/image" if key else "https://image.pollinations.ai/prompt"
+        headers = {"User-Agent": "KidsLearningBot/1.0"}
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
         request = urllib.request.Request(f"{base_url}/{prompt}?{params}", headers=headers)
         try:
             # Serialize with the scene-image generator so the two do not
@@ -406,6 +408,7 @@ def generate_pollinations_thumbnail(lesson: Lesson, output_path: Path, channel=N
                     content_type = response.headers.get("Content-Type", "")
         except (urllib.error.URLError, OSError) as exc:
             last_error = str(exc)
+            pollinations_key_spent(exc)
             continue
         if "image" not in content_type or len(data) < MIN_USABLE_THUMBNAIL_BYTES:
             last_error = f"unusable response ({content_type}, {len(data)} bytes)"

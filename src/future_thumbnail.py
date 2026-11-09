@@ -138,18 +138,18 @@ def render_visual(visual: str, out: Path, vertical: bool) -> Path | None:
     except Exception as exc:
         print(f"[future-thumb] Cloudflare visual failed: {exc}")
     try:
-        from .image_assets import pollinations_api_key
+        from .image_assets import pollinations_api_key, pollinations_key_spent, pollinations_model
 
-        key = pollinations_api_key()
-        base = "https://gen.pollinations.ai/image" if key else "https://image.pollinations.ai/prompt"
         w, h = (768, 1344) if vertical else (1280, 720)
         params = urllib.parse.urlencode({"width": w, "height": h, "seed": random.randint(0, 999999),
-                                         "model": "zimage" if key else "flux", "nologo": "true",
+                                         "model": pollinations_model(), "nologo": "true",
                                          "enhance": "true", "safe": "true"})
-        headers = {"User-Agent": "story-bot-studio"}
-        if key:
-            headers["Authorization"] = f"Bearer {key}"
-        for attempt in range(3):
+        for attempt in range(4):
+            key = pollinations_api_key()
+            base = "https://gen.pollinations.ai/image" if key else "https://image.pollinations.ai/prompt"
+            headers = {"User-Agent": "story-bot-studio"}
+            if key:
+                headers["Authorization"] = f"Bearer {key}"
             try:
                 request = urllib.request.Request(f"{base}/{urllib.parse.quote(prompt)}?{params}", headers=headers)
                 with urllib.request.urlopen(request, timeout=120) as response:
@@ -159,8 +159,41 @@ def render_visual(visual: str, out: Path, vertical: bool) -> Path | None:
                     return out
             except Exception as exc:
                 print(f"[future-thumb] Pollinations visual try {attempt + 1} failed: {exc}")
+                pollinations_key_spent(exc)
     except Exception as exc:
         print(f"[future-thumb] Pollinations unavailable: {exc}")
+    # Last resort: a real stock photo of the subject (free Pexels key), so a card
+    # is never drawn without a picture when the AI image services are down.
+    try:
+        import json as _json
+
+        from .thumbnails import pexels_api_key
+
+        key = pexels_api_key()
+        if key:
+            words = [w for w in re.findall(r"[A-Za-z]+", visual.lower())
+                     if len(w) > 3 and w not in {"photorealistic", "realistic", "cinematic", "lighting", "future",
+                                                 "futuristic", "advanced", "technology", "scene", "with", "studio",
+                                                 "materials", "perspective", "strong", "detail"}][:3]
+            query = " ".join(words) or "future technology"
+            for attempt_query in (query, "futuristic technology"):
+                request = urllib.request.Request(
+                    "https://api.pexels.com/v1/search?" + urllib.parse.urlencode(
+                        {"query": attempt_query, "orientation": "portrait" if vertical else "landscape",
+                         "per_page": 5, "size": "large"}),
+                    headers={"Authorization": key, "User-Agent": "story-bot-studio"})
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    photos = _json.loads(response.read()).get("photos") or []
+                if photos:
+                    src = photos[random.randrange(len(photos))]["src"]
+                    url = src.get("portrait" if vertical else "landscape") or src.get("large2x") or src["original"]
+                    with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "story-bot-studio"}),
+                                                timeout=60) as response:
+                        out.write_bytes(response.read())
+                    print(f"[future-thumb] AI images unavailable; Pexels photo for '{attempt_query}'")
+                    return out
+    except Exception as exc:
+        print(f"[future-thumb] Pexels visual failed: {exc}")
     return None
 
 

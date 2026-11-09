@@ -220,13 +220,20 @@ jobs:
             echo "State saved to the bot-state branch."
           fi
 
-      - name: Keep the finished videos for a week
+      # Only the videos still waiting for YouTube are kept (a later run uploads
+      # them from here). Keeping every video of every run filled GitHub's
+      # artifact storage in two days, and then even the waiting ones were lost.
+      - name: Pick the videos still waiting for YouTube
         if: always()
+        continue-on-error: true
+        run: python -m src.cli keep-pending --to keep
+
+      - name: Keep the waiting videos for a week
+        if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: videos-${{ github.run_number }}
-          path: |
-            runs/**/video.mp4
-            runs/**/thumbnail.jpg
+          path: keep/**
           retention-days: 7
           if-no-files-found: ignore

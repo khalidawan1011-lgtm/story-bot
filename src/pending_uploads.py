@@ -369,6 +369,16 @@ def _thumbnail_reenabled_at(channel_id: str) -> str | None:
         return None
 
 
+def _is_tall(path: Path) -> bool:
+    try:
+        from PIL import Image
+
+        with Image.open(path) as image:
+            return image.height > image.width
+    except Exception:
+        return False
+
+
 def youtube_shows_card(video_id: str, card: Path) -> bool | None:
     """Whether YouTube's picture for the video is our card; None if it cannot be fetched.
 
@@ -466,6 +476,12 @@ def reapply_thumbnails(hours: float = 30) -> list[str]:
             messages.append(f"[{channel_id}] {video_id}: own card is {problem[:80]}; left to the audit")
             continue
         shown = youtube_shows_card(video_id, path)
+        if shown:
+            # A Short also needs YouTube's Shorts-list copy of the thumbnail.
+            from .thumbnail_audit import shorts_card_shown
+
+            if path.suffix and _is_tall(path) and shorts_card_shown(video_id) is False:
+                shown = False
         if shown:
             new_status, note = "uploaded", "thumbnail verified on YouTube"
         else:
@@ -960,3 +976,40 @@ def upload_one(video_id: int, *, bypass_safety_cap: bool = False) -> str:
     if row is None:
         return f"{video_id}: not found"
     return _process_row(row, bypass_safety_cap=bypass_safety_cap)
+
+
+KEEP_STATUSES = ("rendered", "daily_upload_pending", "upload_failed", "thumbnail_pending",
+                 "awaiting_approval", "uploading", "queued_for_upload")
+
+
+def keep_pending_files(dest: Path) -> list[str]:
+    """Copy the files of videos that still need YouTube into dest/<job id>/.
+
+    The daily run keeps only these as its artifact. It used to keep every video
+    of every run (400-1200 MB each, ten runs a day), which filled GitHub's
+    artifact storage in two days; then the videos that really needed a later
+    upload were lost."""
+    import shutil
+
+    if not settings.db_path.exists():
+        return []
+    conn = sqlite3.connect(settings.db_path)
+    try:
+        marks = ",".join("?" for _ in KEEP_STATUSES)
+        rows = conn.execute(
+            f"SELECT video_path, thumbnail_path, status, video_url FROM videos "
+            f"WHERE status IN ({marks}) AND hidden_at IS NULL", KEEP_STATUSES).fetchall()
+    finally:
+        conn.close()
+    kept: list[str] = []
+    for video_path, thumbnail_path, status, video_url in rows:
+        files = [Path(str(thumbnail_path or ""))]
+        if not video_url:
+            files.append(Path(str(video_path or "")))  # a video already on YouTube only needs its card
+        for source in files:
+            if source.is_file() and source.name in ("video.mp4", "thumbnail.jpg"):
+                target = dest / source.parent.name / source.name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
+                kept.append(f"{source.parent.name}/{source.name}")
+    return kept

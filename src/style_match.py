@@ -55,6 +55,7 @@ def measure(path: str | Path) -> dict:
         zone[:, : int(w * 0.62)] = 1
     count, labels, stats, _ = cv2.connectedComponentsWithStats(orange * zone, connectivity=8)
     bar_h = bar_w = 0.0
+    bar_top = None
     off_edge = False
     if count > 1:
         biggest = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
@@ -68,15 +69,18 @@ def measure(path: str | Path) -> dict:
         left, right = int(np.median(lefts)), int(np.median(rights))
         bar_w = (right - left + 1) / w
         bar_h = len(solid) / h
+        bar_top = int(solid.min())
         # A bar cut by the card's edge looks like a mistake (the examples keep a margin).
         right_cut = right >= w - 1
         # A long card's bar may bleed off the left side (the examples do); never off the right.
         off_edge = (left <= 0 or right_cut) if tall else right_cut
     ivory = ((r > 205) & (g > 205) & (b > 195) & (abs(r - b) < 40)).astype(np.uint8)
     if tall:
-        # The whole upper part: the headline may sit higher (examples) or lower
-        # (inside YouTube's crop-safe area) and is still measured the same way.
-        area = ivory[: int(h * 0.6), :]
+        # Everything above the orange bar: logo and headline, wherever they sit.
+        # The picture below the bar (a white robot in an example) is not text.
+        top = bar_top if bar_top else int(h * 0.45)
+        area = ivory[:top, :]
+        area = area if area.size else ivory[: int(h * 0.45), :]
     else:
         area = ivory[int(h * 0.18): int(h * 0.5), : int(w * 0.5)]
     # Headline letters touching the side edges.
@@ -85,7 +89,7 @@ def measure(path: str | Path) -> dict:
     # roughly the top and bottom 13% are cut, so no logo or headline may sit there.
     in_crop = bool(tall and ivory[: int(h * 0.12), :].mean() > 0.002)
     return {"tall": tall, "bar_h": round(float(bar_h), 3), "bar_w": round(float(bar_w), 3),
-            "headline": round(float(area.mean()), 3), "off_edge": bool(off_edge), "edge_text": edge_text,
+            "headline": round(float(area.sum()) / float(h * w), 4), "off_edge": bool(off_edge), "edge_text": edge_text,
             "in_crop": in_crop}
 
 
@@ -122,10 +126,14 @@ def compare(path: str | Path, channel_id: str) -> dict:
         return {"ok": True, "score": None, "issues": [], "ratios": {},
                 "note": "no example of this shape to compare with"}
     ratios, issues = {}, []
+    devs = {}
     for key in ("bar_h", "bar_w", "headline"):
         ratio = card[key] / ref[key] if ref[key] else 1.0
         ratios[key] = round(ratio, 2)
-        if abs(ratio - 1) > TOLERANCE:
+        # A headline smaller or thinner than the examples is the real fault; a
+        # bigger one (two big lines instead of one) only fails when far off.
+        devs[key] = (ratio - 1) / 3 if key == "headline" and ratio > 1 else abs(ratio - 1)
+        if devs[key] > TOLERANCE:
             more = "bigger" if ratio > 1 else "smaller"
             issues.append(f"{_WORDS[key]} is {abs(ratio - 1):.0%} {more} than your examples")
     if card.get("off_edge"):
@@ -137,7 +145,7 @@ def compare(path: str | Path, channel_id: str) -> dict:
     if card.get("in_crop"):
         issues.append("logo or headline sits in the top strip YouTube cuts off Shorts thumbnails")
         ratios["edge"] = 1
-    worst = max(abs(r - 1) for k, r in ratios.items() if k != "edge")
+    worst = max(devs.values())
     if "edge" in ratios:
         worst = max(worst, 0.3)
     score = max(0, round(100 * (1 - worst)))

@@ -12,7 +12,7 @@ fastest and safest way is to copy the code, not to rebuild it:
 # in the OTHER bot's folder
 git remote add chrono https://github.com/worldvalorchronicles-ui/story-bot.git
 git fetch chrono
-git cherry-pick 2f6cb29 b2e945f dccb160 c7cf1ad f67cbd3 8776662 0752dc4 ac961e1 1a18aab 414c4fc 39ce1a1 5b3bc84 196b125 2bbc982 cffd869 e03bde0 882628d d66cfe6
+git cherry-pick 2f6cb29 b2e945f dccb160 c7cf1ad f67cbd3 8776662 0752dc4 ac961e1 1a18aab 414c4fc 39ce1a1 5b3bc84 196b125 2bbc982 cffd869 e03bde0 882628d d66cfe6 c1768ff
 ```
 
 The last seven are the fixes found in the first real runs (thumbnail

@@ -189,11 +189,13 @@ def collect() -> dict:
             "SELECT COUNT(*) AS n FROM videos WHERE video_url IS NOT NULL AND upload_date >= ?",
             (day_start,),
         )
+        # Only what you can still act on: a video whose files expired
+        # (files_lost) can never be uploaded, so it is not listed here.
         problems = _rows(
             conn,
             """SELECT title, channel, status, substr(COALESCE(error,''),1,180) AS error
                FROM videos
-               WHERE status IN ('upload_failed','quality_failed','files_lost')
+               WHERE status IN ('upload_failed','quality_failed')
                  AND video_url IS NULL AND hidden_at IS NULL
                ORDER BY id DESC LIMIT 6""",
         )

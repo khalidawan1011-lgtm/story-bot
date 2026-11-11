@@ -187,7 +187,8 @@ jobs:
         run: |
           set -e
           key="$RUNNER_TEMP/status_page_key"
-          printf '%s\n' "$DEPLOY_KEY" > "$key"
+          # A key set from Windows PowerShell arrives with CRLF line ends, which ssh cannot read.
+          printf '%s\n' "$DEPLOY_KEY" | tr -d '\r' > "$key"
           chmod 600 "$key"
           touch site/.nojekyll
           cd site

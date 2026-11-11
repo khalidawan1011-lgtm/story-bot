@@ -10,6 +10,7 @@ Re-run it whenever a token or key changes on this PC.
 """
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import sys
@@ -34,9 +35,24 @@ def _gh() -> str:
 
 
 def _check_auth(gh: str) -> None:
-    result = subprocess.run([gh, "auth", "status"], capture_output=True, text=True)
-    if result.returncode != 0:
+    # Ask for the active account only: `gh auth status` fails when ANY saved
+    # account has a dead token (e.g. a suspended one), even if the active
+    # account works.
+    result = subprocess.run([gh, "api", "user", "-q", ".login"], capture_output=True, text=True)
+    if result.returncode != 0 or not result.stdout.strip():
         raise SystemExit("Not signed in to GitHub. Run:  gh auth login")
+    print(f"Signed in as {result.stdout.strip()}; secrets go to {_repo()}.\n")
+
+
+def _repo() -> str:
+    """owner/name of the `origin` remote. Named explicitly, because with a second
+    remote (an old account kept as old-origin) gh refuses to guess."""
+    url = subprocess.run(["git", "remote", "get-url", "origin"], cwd=ROOT,
+                         capture_output=True, text=True).stdout.strip()
+    match = re.search(r"github\.com[:/]([^/]+/[^/]+?)(?:\.git)?/?$", url)
+    if not match:
+        raise SystemExit(f"The origin remote is not a GitHub repository: {url or '(none)'}")
+    return match.group(1)
 
 
 def main() -> None:
@@ -53,7 +69,7 @@ def main() -> None:
     blob = ci_secrets.pack()
     print(f"\nUploading {len(blob) // 1024} KB to the repository secret {SECRET_NAME} ...")
     result = subprocess.run(
-        [gh, "secret", "set", SECRET_NAME],
+        [gh, "secret", "set", SECRET_NAME, "-R", _repo()],
         input=blob, text=True, cwd=ROOT, capture_output=True,
     )
     if result.returncode != 0:

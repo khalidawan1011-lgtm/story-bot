@@ -729,7 +729,9 @@ def _brand_kit(ch) -> dict:
         "examples": [{"path": str(p), "name": p.name} for p in brand.examples(ch.id)],
         "samples": [_sample_row(p) for p in brand.samples(ch.id)],
         "fonts": (["Space Grotesk Bold — headline", "Anton — big year / number", "Sora ExtraBold — supporting line",
-                   "IBM Plex Mono — scientific labels"] if getattr(ch, "thumbnail_style", "") == "future" else []),
+                   "IBM Plex Mono — scientific labels"] if getattr(ch, "thumbnail_style", "") == "future" else
+                  ["Cinzel Black — headline and wordmark", "Crimson brush stroke — key word",
+                   "Parchment scroll — mood label"] if getattr(ch, "thumbnail_style", "") == "mystery" else []),
     }
 
 

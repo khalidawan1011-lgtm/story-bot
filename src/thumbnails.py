@@ -967,13 +967,17 @@ def create_thumbnail(lesson: Lesson, image_path: Path | None, output_path: Path,
         return compose_thumbnail(lesson, manual_path, output_path, channel, content_type)
 
     # A channel with a designed look of its own (future_thumbnail.py).
-    if str(getattr(channel, "thumbnail_style", "") or "") == "future":
+    designed = str(getattr(channel, "thumbnail_style", "") or "")
+    if designed in ("future", "mystery"):
         try:
-            from .future_thumbnail import compose_for_lesson
+            if designed == "future":
+                from .future_thumbnail import compose_for_lesson
+            else:
+                from .mystery_thumbnail import compose_for_lesson
 
             return compose_for_lesson(lesson, output_path, channel, content_type)
         except Exception as exc:
-            print(f"[thumbnail] future style failed, using the plain card: {exc}")
+            print(f"[thumbnail] {designed} style failed, using the plain card: {exc}")
 
     art_path: Path | None = None
     try:

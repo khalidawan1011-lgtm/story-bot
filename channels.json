@@ -64,6 +64,54 @@
         "https://www.youtube.com/@TheB1M"
       ],
       "thumbnail_style": "future"
+    },
+    {
+      "id": "pastveil_mysteries",
+      "name": "Pastveil Mysteries",
+      "genre": "history mysteries",
+      "builtin": false,
+      "lessons_file": "data/pastveil_mysteries_lessons.json",
+      "voice": "en-GB-RyanNeural",
+      "made_for_kids": false,
+      "privacy": "public",
+      "category_id": "27",
+      "seo_suffix": "| Pastveil Mysteries",
+      "image_style": "cinematic dark fantasy, moody lighting, highly detailed, historical documentary aesthetic, 8k",
+      "client_secret": "client_secret_pastveil_mysteries.json",
+      "token": "token_pastveil_mysteries.json",
+      "topics_per_day": 2,
+      "slot": 1,
+      "language": "en",
+      "tone": "Every script should sound suspenseful, atmospheric, and deeply investigative, drawing viewers into the enigma of the past.",
+      "keywords": [
+        "unsolved historical mysteries",
+        "lost civilizations",
+        "ancient secrets",
+        "forgotten empires",
+        "historical enigmas",
+        "mysterious artifacts",
+        "unexplained history",
+        "ancient mysteries revealed",
+        "lost history",
+        "ancient ruins secrets"
+      ],
+      "visuals": "still",
+      "ideas": [
+        "The Disappearance of the Roanoke Colony Finally Explained",
+        "What Really Happened Inside the Great Pyramid's Hidden Chamber?",
+        "The Cursed Treasure of the Copper Scroll",
+        "The Lost Underground City Beneath Modern Streets",
+        "Unsolved Mysteries of the Ancient Mayan Collapse"
+      ],
+      "topic": "Welcome to **Pastveil Mysteries**, where history's greatest secrets are waiting to be uncovered. Explore unsolved historical mysteries, lost civilizations, ancient secrets, forgotten empires, mysteri",
+      "long_days": [
+        "Mon",
+        "Wed",
+        "Fri"
+      ],
+      "created_by": "factory",
+      "created_at": "2026-11-10T06:52:47",
+      "thumbnail_style": "mystery"
     }
   ]
 }

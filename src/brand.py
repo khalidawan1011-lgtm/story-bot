@@ -25,6 +25,7 @@ STYLE_NAMES = {
     "earth": "Prehistory / Earth",
     "ocean": "Ocean giants / expedition dossier",
     "money": "Personal finance",
+    "mystery": "Historical mystery (documentary poster)",
 }
 
 
@@ -154,6 +155,11 @@ def youtube_identity(channel, max_age_hours: float = 12) -> dict:
 # ------------------------------------------------------------------ samples
 
 SAMPLE_TITLES = {"long": "What Will Life Look Like in 2050?", "short": "Could Robots Run Entire Cities?"}
+# Sample titles that suit a style; any other style uses SAMPLE_TITLES.
+STYLE_SAMPLE_TITLES = {
+    "mystery": {"long": "The Lost City of Egypt Nobody Can Find",
+                "short": "What Happened to the Roanoke Colony?"},
+}
 
 
 def make_samples(channel) -> list[str]:
@@ -165,7 +171,8 @@ def make_samples(channel) -> list[str]:
     folder = brand_dir(channel.id) / "samples"
     folder.mkdir(exist_ok=True)
     notes = []
-    for kind, title in SAMPLE_TITLES.items():
+    titles = STYLE_SAMPLE_TITLES.get(str(getattr(channel, "thumbnail_style", "") or ""), SAMPLE_TITLES)
+    for kind, title in titles.items():
         lesson = Lesson(topic_key=f"sample_{kind}", title=title, category=str(channel.genre).title(),
                         intro="", outro="", scenes=[Scene(label=title[:30], line=title, image="")])
         path = create_thumbnail(lesson, None, folder / f"{kind}.jpg", channel, kind)

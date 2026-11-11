@@ -123,10 +123,15 @@ _STYLE = ("premium future-science editorial photograph, photorealistic, authenti
           "no cartoon, no fantasy spaceships, no distorted faces.")
 
 
-def render_visual(visual: str, out: Path, vertical: bool) -> Path | None:
-    """The photorealistic visual: Cloudflare FLUX, then Pollinations, else None."""
-    prompt = f"{visual}. {_STYLE}" + (" Vertical 9:16 composition, subject in the lower two thirds."
-                                      if vertical else " 16:9 composition, subject on the right half.")
+def render_visual(visual: str, out: Path, vertical: bool, style: str = _STYLE,
+                  placement: str = "", stock_fallback: str = "futuristic technology") -> Path | None:
+    """The photorealistic visual: Cloudflare FLUX, then Pollinations, else None.
+
+    `style` and `placement` let another designed look (mystery_thumbnail.py)
+    reuse the same image services with its own prompt."""
+    placement = placement or (" Vertical 9:16 composition, subject in the lower two thirds."
+                              if vertical else " 16:9 composition, subject on the right half.")
+    prompt = f"{visual}. {style}{placement}"
     out.parent.mkdir(parents=True, exist_ok=True)
     try:
         from .thumbnails import cloudflare_thumbnail_ready
@@ -176,7 +181,7 @@ def render_visual(visual: str, out: Path, vertical: bool) -> Path | None:
                                                  "futuristic", "advanced", "technology", "scene", "with", "studio",
                                                  "materials", "perspective", "strong", "detail"}][:3]
             query = " ".join(words) or "future technology"
-            for attempt_query in (query, "futuristic technology"):
+            for attempt_query in (query, stock_fallback):
                 request = urllib.request.Request(
                     "https://api.pexels.com/v1/search?" + urllib.parse.urlencode(
                         {"query": attempt_query, "orientation": "portrait" if vertical else "landscape",

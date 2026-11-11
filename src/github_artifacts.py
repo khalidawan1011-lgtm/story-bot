@@ -4,7 +4,7 @@ A runner starts empty: the videos of an earlier run are gone, and only the
 database remembers them. A video that could not be uploaded when it was made
 (quota, a refused login) therefore had nothing left to upload on the next run
 and failed for ever with "Thumbnail missing". The daily workflow keeps every
-run's video.mp4 and thumbnail.jpg as an artifact for a week, so the retry
+run's video.mp4 and thumbnail.jpg as an artifact for two days, so the retry
 fetches them from there.
 
 Only works inside GitHub Actions (GITHUB_TOKEN and GITHUB_REPOSITORY set, and

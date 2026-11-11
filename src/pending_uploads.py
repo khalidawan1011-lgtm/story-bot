@@ -574,7 +574,7 @@ def _mark_files_lost(video_id: int) -> None:
         conn.execute(
             "UPDATE videos SET status = 'files_lost', error = ?, upload_progress = 0 WHERE id = ?",
             ("The video was built but could not be uploaded at the time, and its files were "
-             "only kept for a week.", video_id),
+             "only kept for two days.", video_id),
         )
         conn.commit()
     finally:

@@ -125,7 +125,7 @@
       "category_id": "15",
       "seo_suffix": "| Pondermals",
       "image_style": "simple hand-drawn doodle cartoon, thick clean black outlines, flat bright colors, no shading, expressive funny animal faces with big round white eyes, plain light background, webcomic style",
-      "client_secret": "client_secret.json",
+      "client_secret": "client_secret_pondermals.json",
       "token": "token_pondermals.json",
       "topics_per_day": 3,
       "slot": 2,

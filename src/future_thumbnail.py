@@ -124,7 +124,8 @@ _STYLE = ("premium future-science editorial photograph, photorealistic, authenti
 
 
 def render_visual(visual: str, out: Path, vertical: bool, style: str = _STYLE,
-                  placement: str = "", stock_fallback: str = "futuristic technology") -> Path | None:
+                  placement: str = "", stock_fallback: str = "futuristic technology",
+                  stock: bool = True) -> Path | None:
     """The photorealistic visual: Cloudflare FLUX, then Pollinations, else None.
 
     `style` and `placement` let another designed look (mystery_thumbnail.py)
@@ -174,7 +175,7 @@ def render_visual(visual: str, out: Path, vertical: bool, style: str = _STYLE,
 
         from .thumbnails import pexels_api_key
 
-        key = pexels_api_key()
+        key = pexels_api_key() if stock else ""
         if key:
             words = [w for w in re.findall(r"[A-Za-z]+", visual.lower())
                      if len(w) > 3 and w not in {"photorealistic", "realistic", "cinematic", "lighting", "future",

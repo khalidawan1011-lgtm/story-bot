@@ -112,6 +112,54 @@
       "created_by": "factory",
       "created_at": "2026-11-10T06:52:47",
       "thumbnail_style": "mystery"
+    },
+    {
+      "id": "pondermals",
+      "name": "Pondermals",
+      "genre": "animal curiosities",
+      "builtin": false,
+      "lessons_file": "data/pondermals_lessons.json",
+      "voice": "en-US-BrianNeural",
+      "made_for_kids": false,
+      "privacy": "public",
+      "category_id": "15",
+      "seo_suffix": "| Pondermals",
+      "image_style": "simple hand-drawn doodle cartoon, thick clean black outlines, flat bright colors, no shading, expressive funny animal faces with big round white eyes, plain light background, webcomic style",
+      "client_secret": "client_secret.json",
+      "token": "token_pondermals.json",
+      "topics_per_day": 3,
+      "slot": 2,
+      "language": "en",
+      "tone": "Curious, playful and conversational, like a friend wondering out loud; light humour, but every answer rests on real animal science and research. Never invent studies, numbers or experts.",
+      "keywords": [
+        "animal facts",
+        "animal questions",
+        "animal behavior",
+        "do animals",
+        "why do animals",
+        "animal science",
+        "animal intelligence",
+        "pets",
+        "wildlife",
+        "animal cartoon"
+      ],
+      "visuals": "cartoon",
+      "ideas": [
+        "Do Animals Know When It's Their Birthday?",
+        "Why Don't Animals Get Bored Like We Do?",
+        "Can Animals Tell When You're Lying?",
+        "Do Fish Ever Sleep?",
+        "What Would Your Dog Say If It Could Talk for One Minute?"
+      ],
+      "topic": "Pondermals: funny, science-backed answers to curious questions about animals, told over simple doodle cartoons",
+      "long_days": [
+        "Wed",
+        "Sat"
+      ],
+      "created_by": "factory",
+      "created_at": "2026-11-12T10:48:39",
+      "description_footer": "New animal questions every week. Subscribe and keep pondering! Answers are based on published animal research; cartoons are illustrations.",
+      "thumbnail_style": "doodle"
     }
   ]
 }

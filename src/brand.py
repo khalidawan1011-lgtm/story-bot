@@ -26,6 +26,7 @@ STYLE_NAMES = {
     "ocean": "Ocean giants / expedition dossier",
     "money": "Personal finance",
     "mystery": "Historical mystery (documentary poster)",
+    "doodle": "Doodle cartoon question (animal curiosities)",
 }
 
 
@@ -159,6 +160,8 @@ SAMPLE_TITLES = {"long": "What Will Life Look Like in 2050?", "short": "Could Ro
 STYLE_SAMPLE_TITLES = {
     "mystery": {"long": "The Lost City of Egypt Nobody Can Find",
                 "short": "What Happened to the Roanoke Colony?"},
+    "doodle": {"long": "Do Animals Know When It's Their Birthday?",
+               "short": "Do Fish Ever Sleep?"},
 }
 
 

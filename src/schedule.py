@@ -37,6 +37,10 @@ RELEASE_TIMES = {
     # documentary at 5 PM ET (US after work, UK evening). Every release is 4 h
     # from the next, long days included: 09 / 13 / 17 / 21.
     "future science":         (("09:00", "13:00", "21:00"), ("17:00",)),
+    # Pondermals: three Shorts five hours apart (US breakfast, lunch, after
+    # work), and on its two long days (Wed, Sat) the long video at 8:30 PM ET,
+    # 2.5 h after the last Short.
+    "animal curiosities":     (("08:00", "13:00", "18:00"), ("20:30",)),
 }
 _DEFAULT_RELEASE = (("12:00", "18:00"), ("15:00",))
 

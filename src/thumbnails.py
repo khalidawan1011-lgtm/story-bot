@@ -968,10 +968,12 @@ def create_thumbnail(lesson: Lesson, image_path: Path | None, output_path: Path,
 
     # A channel with a designed look of its own (future_thumbnail.py).
     designed = str(getattr(channel, "thumbnail_style", "") or "")
-    if designed in ("future", "mystery"):
+    if designed in ("future", "mystery", "doodle"):
         try:
             if designed == "future":
                 from .future_thumbnail import compose_for_lesson
+            elif designed == "doodle":
+                from .doodle_thumbnail import compose_for_lesson
             else:
                 from .mystery_thumbnail import compose_for_lesson
 

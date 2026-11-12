@@ -229,7 +229,18 @@ def _logo(channel, height: int, on_dark: bool) -> Image.Image:
     if logo_file is not None:
         logo = Image.open(logo_file).convert("RGBA")
         logo = _clean_logo(logo)
-        return logo.resize((max(1, int(logo.width * height / logo.height)), height), Image.LANCZOS)
+        logo = logo.resize((max(1, int(logo.width * height / logo.height)), height), Image.LANCZOS)
+        # A white sticker edge, so the yellow underline still reads on yellow.
+        edge = max(3, height // 22)
+        sticker = Image.new("RGBA", (logo.width + 2 * edge, logo.height + 2 * edge), (0, 0, 0, 0))
+        grown = Image.new("L", sticker.size, 0)
+        grown.paste(logo.getchannel("A"), (edge, edge))
+        grown = grown.filter(ImageFilter.MaxFilter(2 * edge + 1)).filter(ImageFilter.GaussianBlur(1))
+        white = Image.new("RGBA", sticker.size, WHITE + (255,))
+        white.putalpha(grown)
+        sticker.alpha_composite(white)
+        sticker.alpha_composite(logo, (edge, edge))
+        return sticker
     name = str(getattr(channel, "name", "") or "PONDERMALS").upper()
     size = int(height * 0.48)
     font = _font(size)

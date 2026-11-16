@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -213,6 +214,7 @@ def upload_video(video_path: Path, thumbnail_path: Path, metadata: dict[str, obj
         progress_callback(100)
     video_id = response["id"]
     video_url = f"https://www.youtube.com/watch?v={video_id}"
+    remember_uploaded_title(token_file, str(metadata["title"]), video_url)
 
     if upload_thumbnail:
         try:
@@ -228,6 +230,103 @@ def upload_video(video_path: Path, thumbnail_path: Path, metadata: dict[str, obj
                 video_url, f"thumbnail is set, but releasing the private video failed: {exc}"
             ) from exc
     return video_url
+
+
+# ---------------------------------------------------------------------------
+# Duplicate guard against the channel itself.
+#
+# The bot's own database is the first duplicate check, but a database can be
+# lost or start blank (a new GitHub repo, a restored PC, a missing bot-state
+# branch), and then the bot happily remakes topics that are already on the
+# channel. Before every upload the channel's real upload list is read once per
+# run (private and scheduled videos included, about 1 quota unit per 50 videos)
+# and a video whose title matches one already there is not uploaded again.
+# ---------------------------------------------------------------------------
+
+_UPLOADED_TITLES: dict[str, dict[str, str]] = {}
+_TITLE_WORD = re.compile(r"[^\W_]+", re.UNICODE)
+
+
+def normalize_title(title: str) -> str:
+    """The part of a title that names the video: no '| Channel' suffix, no
+    hashtags, no emoji or punctuation, lower case."""
+    core = str(title or "").split("|", 1)[0]
+    core = re.sub(r"#\S+", " ", core)
+    return " ".join(_TITLE_WORD.findall(core.lower()))
+
+
+def _titles_match(left: str, right: str) -> bool:
+    if not left or not right:
+        return False
+    if left == right:
+        return True
+    a, b = set(left.split()), set(right.split())
+    # Same words in a different order or with one small word changed.
+    return min(len(a), len(b)) >= 4 and len(a & b) / len(a | b) >= 0.85
+
+
+def _token_key(token_file: Path | None) -> str:
+    return str(Path(token_file or settings.youtube_token_file).resolve())
+
+
+def channel_uploaded_titles(channel) -> dict[str, str]:
+    """normalized title -> video URL for every upload on this channel."""
+    token_file = channel.token_path if channel is not None else None
+    key = _token_key(token_file)
+    if key in _UPLOADED_TITLES:
+        return _UPLOADED_TITLES[key]
+    client_secret_file = channel.client_secret_path if channel is not None else None
+    youtube = _youtube(client_secret_file, token_file)
+    items = youtube.channels().list(part="contentDetails", mine=True).execute().get("items") or []
+    titles: dict[str, str] = {}
+    if items:
+        playlist = items[0]["contentDetails"]["relatedPlaylists"]["uploads"]
+        page_token = None
+        while True:
+            page = youtube.playlistItems().list(
+                part="snippet", playlistId=playlist, maxResults=50, pageToken=page_token,
+            ).execute()
+            for item in page.get("items") or []:
+                snippet = item.get("snippet") or {}
+                video_id = (snippet.get("resourceId") or {}).get("videoId")
+                normalized = normalize_title(snippet.get("title", ""))
+                if video_id and normalized:
+                    titles.setdefault(normalized, f"https://www.youtube.com/watch?v={video_id}")
+            page_token = page.get("nextPageToken")
+            if not page_token:
+                break
+    _UPLOADED_TITLES[key] = titles
+    print(f"[duplicate-check] {getattr(channel, 'id', 'default')}: {len(titles)} videos already on YouTube")
+    return titles
+
+
+def remember_uploaded_title(token_file: Path | None, title: str, video_url: str) -> None:
+    """Add a fresh upload to the cached list so the same run cannot repeat it."""
+    cached = _UPLOADED_TITLES.get(_token_key(token_file))
+    normalized = normalize_title(title)
+    if cached is not None and normalized:
+        cached.setdefault(normalized, video_url)
+
+
+def find_youtube_title_duplicate(channel, title: str) -> str | None:
+    """URL of a video on the channel with the same title, or None.
+
+    If YouTube cannot be read (quota, network) the upload is not blocked: the
+    database checks still ran, and a missed upload costs more than a rare repeat."""
+    wanted = normalize_title(title)
+    if not wanted:
+        return None
+    try:
+        titles = channel_uploaded_titles(channel)
+    except Exception as exc:
+        print(f"[duplicate-check] could not read the channel's uploads, not checked: {exc}")
+        return None
+    if wanted in titles:
+        return titles[wanted]
+    for existing, url in titles.items():
+        if _titles_match(wanted, existing):
+            return url
+    return None
 
 
 def _set_status(youtube, video_id: str, status: dict[str, object]) -> None:

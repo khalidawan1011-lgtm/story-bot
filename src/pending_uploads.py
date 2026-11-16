@@ -762,6 +762,12 @@ def _process_row(row: sqlite3.Row, *, bypass_safety_cap: bool = False) -> str:
                 load_lesson_for(channel, row["topic"]), channel,
                 content_type=row["content_type"] or "short",
             )
+            from .youtube_upload import find_youtube_title_duplicate
+
+            on_channel = find_youtube_title_duplicate(channel, str(metadata["title"]))
+            if on_channel:
+                mark_duplicate_blocked(video_id, (0, on_channel, "same title already on the YouTube channel"))
+                return f"{video_id}: duplicate upload blocked; already on YouTube: {on_channel}"
             publish_at = next_publish_at(channel.id, reservation_key=reservation_key,
                                          content_type=row["content_type"] or "short")
             if publish_at is not None and publish_at < datetime.now(timezone.utc) + timedelta(minutes=15):

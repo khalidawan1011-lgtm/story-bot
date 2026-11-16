@@ -504,6 +504,12 @@ def run_pipeline(
                     duplicate = find_uploaded_duplicate(
                         channel_id, lesson.topic_key, content_type, Path(video_path),
                     )
+                    if not duplicate:
+                        from .youtube_upload import find_youtube_title_duplicate
+
+                        on_channel = find_youtube_title_duplicate(channel, str(metadata["title"]))
+                        if on_channel:
+                            duplicate = (0, on_channel, "same title already on the YouTube channel")
                     if duplicate:
                         status = "duplicate_blocked"
                         error = (

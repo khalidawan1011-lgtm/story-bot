@@ -86,6 +86,12 @@ def main() -> None:
     audit.add_argument("--days", default="7", help="How many days of uploads to check.")
     audit.add_argument("--fix", default="true", help="false = only report, change nothing.")
     audit.add_argument("--channel", default="", help="Only this channel id (blank = all).")
+    verify_thumbs = sub.add_parser(
+        "verify-thumbnails",
+        help="Check that YouTube shows the exact thumbnail the bot stored for each recent video; put it back if not.")
+    verify_thumbs.add_argument("--days", default="7", help="How many days of stored thumbnails to check.")
+    verify_thumbs.add_argument("--fix", default="true", help="false = only report, change nothing.")
+    verify_thumbs.add_argument("--channel", default="", help="Only this channel id (blank = all).")
     retry = sub.add_parser("retry-uploads", help="Upload rendered/failed videos when internet is back.")
     retry.add_argument("--limit", default="20", help="Maximum pending videos to retry.")
 
@@ -365,6 +371,12 @@ def main() -> None:
             used = f" -> ours: {v['our_title']}" if v["our_title"] else (" (reserved)" if v["used_at"] else "")
             print(f"  {v['ratio']:>5.1f}x  {v['views']:>9,} views  {'Short' if v['short'] else 'long '}  "
                   f"[{v['competitor_name']}] {v['title'][:70]}{used}")
+        return
+    elif args.command == "verify-thumbnails":
+        from .thumbnail_memory import verify_recent
+        for message in verify_recent(days=int(args.days), fix=str(args.fix).lower() != "false",
+                                     channel_id=args.channel or None):
+            print(message)
         return
     elif args.command == "audit-thumbnails":
         from .thumbnail_audit import audit

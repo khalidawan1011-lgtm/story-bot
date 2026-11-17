@@ -215,6 +215,14 @@ def upload_video(video_path: Path, thumbnail_path: Path, metadata: dict[str, obj
     video_id = response["id"]
     video_url = f"https://www.youtube.com/watch?v={video_id}"
     remember_uploaded_title(token_file, str(metadata["title"]), video_url)
+    # Saved before the thumbnail is set: if setting it fails, the later check
+    # still knows which card belongs on this video and puts it on.
+    try:
+        from .thumbnail_memory import remember
+
+        remember(video_url, channel, thumbnail_path)
+    except Exception as exc:
+        print(f"[thumbnail-memory] could not store the card of {video_url}: {exc}")
 
     if upload_thumbnail:
         try:
@@ -229,6 +237,13 @@ def upload_video(video_path: Path, thumbnail_path: Path, metadata: dict[str, obj
             raise ThumbnailUploadError(
                 video_url, f"thumbnail is set, but releasing the private video failed: {exc}"
             ) from exc
+    if (channel is not None and upload_thumbnail
+            and final_status.get("privacyStatus") == "public" and not final_status.get("publishAt")):
+        # Public right away: check in a few seconds that YouTube shows our card.
+        # A scheduled video is checked by the end-of-run pass once it is public.
+        from .thumbnail_memory import verify_later
+
+        verify_later(video_url, channel)
     return video_url
 
 

@@ -236,6 +236,16 @@ def thumbnail_for(channel, video: dict) -> Path:
         if own.is_file() and check_thumbnail(own).ok and style_ok(own, channel)[0]:
             return own
         content_type = row["content_type"] or content_type
+    # The card stored at upload time (the run's files are gone on GitHub),
+    # only when it was made for this same channel.
+    from .thumbnail_memory import card_for
+
+    stored = card_for(video["id"], channel)
+    if stored is not None and check_thumbnail(stored).ok:
+        from .style_match import style_ok
+
+        if style_ok(stored, channel)[0]:
+            return stored
     out = settings.root / "runs" / "thumbnail_audit" / f"{video['id']}.jpg"
     out.parent.mkdir(parents=True, exist_ok=True)
     lesson = None

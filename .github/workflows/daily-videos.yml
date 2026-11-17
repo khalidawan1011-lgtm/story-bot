@@ -164,6 +164,15 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: python -m src.cli audit-thumbnails --days 7
 
+      # Every bot video keeps a copy of its own card in the database. Once a
+      # video is public, the picture YouTube shows must be that exact card
+      # (not a frame, not another video's card); if not, the copy is set again,
+      # after checking the video and the card belong to the same channel.
+      - name: Check each video shows its own thumbnail
+        if: ${{ always() && env.UPLOAD != 'false' }}
+        continue-on-error: true
+        run: python -m src.cli verify-thumbnails --days 7
+
       - name: Report
         if: always()
         run: python -m src.cli quota-status

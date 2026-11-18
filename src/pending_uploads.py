@@ -696,10 +696,17 @@ def _process_row(row: sqlite3.Row, *, bypass_safety_cap: bool = False) -> str:
                     restored = github_artifacts.restore_run_files(video_path.parent)
                 except Exception as exc:
                     return f"{video_id}: could not fetch the kept video from GitHub ({exc}); will retry"
-                if not thumbnail_path.exists() or not (row["video_url"] or video_path.exists()):
+                # Only a missing VIDEO is final. A missing thumbnail is remade
+                # below (ensure_ready); marking the video lost for it threw away
+                # long videos whose card had failed only because the image
+                # services were out of quota, minutes after they were built.
+                if not (row["video_url"] or video_path.exists()):
                     _mark_files_lost(video_id)
                     return f"{video_id}: video files are no longer kept; marked as not uploadable"
-                print(f"[retry] {video_id}: restored {', '.join(restored)} from the kept artifacts")
+                if restored:
+                    print(f"[retry] {video_id}: restored {', '.join(restored)} from the kept artifacts")
+                if not thumbnail_path.exists():
+                    print(f"[retry] {video_id}: the video is here but its thumbnail is not; making it again")
         if thumbnail_required():
             try:
                 thumbnail_path = ensure_ready(
@@ -714,7 +721,7 @@ def _process_row(row: sqlite3.Row, *, bypass_safety_cap: bool = False) -> str:
                                      "Verify it at youtube.com/verify, then press 'Thumbnails Are Verified'.")
                 return f"{video_id}: held until '{channel.id}' is verified for custom thumbnails"
         elif not thumbnail_path.exists():
-            raise FileNotFoundError(f"Thumbnail missing: {thumbnail_path}")
+            thumbnail_path = remake_thumbnail_file(row, channel)
 
         if row["video_url"]:
             youtube_id = _video_id_from_url(row["video_url"])
@@ -1013,7 +1020,9 @@ def keep_pending_files(dest: Path) -> list[str]:
         if not video_url:
             files.append(Path(str(video_path or "")))  # a video already on YouTube only needs its card
         for source in files:
-            if source.is_file() and source.name in ("video.mp4", "thumbnail.jpg"):
+            from .github_artifacts import KEPT_FILES
+
+            if source.is_file() and source.name in KEPT_FILES:
                 target = dest / source.parent.name / source.name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, target)

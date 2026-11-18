@@ -20,7 +20,9 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-KEPT_FILES = ("video.mp4", "thumbnail.jpg")
+# Long videos are uploaded as video_with_end_screen.mp4; leaving that name out
+# meant a long video that had to wait was never kept, and was lost next run.
+KEPT_FILES = ("video.mp4", "video_with_end_screen.mp4", "thumbnail.jpg")
 
 
 class _DropAuthOnRedirect(urllib.request.HTTPRedirectHandler):

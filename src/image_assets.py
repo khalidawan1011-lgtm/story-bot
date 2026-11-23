@@ -173,13 +173,24 @@ _CLOUDFLARE_MODELS = (
     # that allowance is used up or the model is busy.
     "@cf/black-forest-labs/flux-2-klein-4b",
     "@cf/black-forest-labs/flux-1-schnell",
-    "@cf/bytedance/stable-diffusion-xl-lightning",
-    "@cf/stabilityai/stable-diffusion-xl-base-1.0",
+    # The two SDXL models were retired by Cloudflare on 2026-11-20.
+)
+# Scene pictures are many and small on screen: the cheaper schnell (about 58
+# Neurons at 4 steps against ~150 for klein) goes first, so the shared free
+# 10,000 a day stretches to two or three times as many pictures and leaves
+# room for the thumbnails, which keep klein first.
+SCENE_MODELS = (
+    "@cf/black-forest-labs/flux-1-schnell",
+    "@cf/black-forest-labs/flux-2-klein-4b",
 )
 
 
 def _cloudflare_body(model: str, prompt: str, seed: int, landscape: bool) -> dict:
     """Both families honour width/height; they differ on the step parameter."""
+    if "flux-1-schnell" in model:
+        # schnell takes only prompt and steps now; width, height or seed make
+        # it refuse the request (HTTP 400). It answers with a 1024x1024 square.
+        return {"prompt": prompt, "steps": 4}
     width, height = (1344, 768) if landscape else (768, 1344)
     body = {"prompt": prompt, "width": width, "height": height, "seed": seed}
     # flux-1-schnell caps steps at 8 and names the field "steps"; the SDXL
@@ -239,10 +250,11 @@ def generate_cloudflare_scene_image(
             _prompt_for_scene(scene, channel)
             + f" High quality, kid friendly, colorful, professional YouTube illustration, {orientation}."
         )
-    return generate_cloudflare_image(prompt, output_path, landscape)
+    return generate_cloudflare_image(prompt, output_path, landscape, models=SCENE_MODELS)
 
 
-def generate_cloudflare_image(prompt: str, output_path: Path, landscape: bool = False) -> Path:
+def generate_cloudflare_image(prompt: str, output_path: Path, landscape: bool = False,
+                              models: tuple[str, ...] = _CLOUDFLARE_MODELS) -> Path:
     """Any prompt through Workers AI, trying each model in _CLOUDFLARE_MODELS."""
     account = cloudflare_account_id()
     token = cloudflare_api_token()
@@ -253,7 +265,7 @@ def generate_cloudflare_image(prompt: str, output_path: Path, landscape: bool = 
     seed = random.randint(0, 2_000_000_000)
 
     errors: list[str] = []
-    for model in _CLOUDFLARE_MODELS:
+    for model in models:
         body, content_type = _cloudflare_request_body(model, prompt, seed, landscape)
         request = urllib.request.Request(
             f"https://api.cloudflare.com/client/v4/accounts/{account}/ai/run/{model}",

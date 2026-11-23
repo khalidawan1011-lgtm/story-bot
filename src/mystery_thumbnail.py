@@ -518,5 +518,7 @@ def compose_for_lesson(lesson, out: Path, channel, content_type: str = "long",
     if visual is None:
         visual = render_visual(plan["visual"], out.with_name("thumbnail_visual.jpg"), vertical)
     if visual is None:
-        print("[mystery-thumb] no picture could be made; the card is drawn on a night sky")
+        from .thumbnail_check import ThumbnailNotReady
+
+        raise ThumbnailNotReady("no picture could be made (the image services are out of quota or down); the video waits and its thumbnail is made again on a later run")
     return (compose_short if vertical else compose_long)(plan, visual, out, channel)

@@ -284,11 +284,16 @@ def _safe_media(raw_path: str) -> Path:
 
 # ---------- routes ----------
 
+_NEW_API_KEYS: dict[str, dict] = {}
+
+
 def _bot_api_view() -> dict:
     from src import bot_api
 
     base = request.host_url.rstrip("/")
-    return {"key_list": bot_api.list_keys(), "bot_list": bot_api.list_bots(), "base_url": base + "/api/v1"}
+    return {"key_list": bot_api.list_keys(), "bot_list": bot_api.list_bots(), "base_url": base + "/api/v1",
+            # Shown once: popped, so a refresh or the back button cannot show it again.
+            "new_key": _NEW_API_KEYS.pop(request.args.get("newkey", ""), None)}
 
 
 @app.route("/")
@@ -389,10 +394,14 @@ def bot_api_key_create():
     except ValueError as exc:
         flash(str(exc), "error")
         return redirect(url_for("home", channel=ch.id, _anchor="botapi"))
-    where = "all channels" if bot_api.ALL_CHANNELS in picked else ", ".join(picked)
-    flash(f"🔑 New API key for '{request.form.get('name') or 'unnamed'}' ({', '.join(scopes)}; {where}). "
-          f"Copy it now, it is shown only once: {key}", "ok")
-    return redirect(url_for("home", channel=ch.id, _anchor="botapi"))
+    # The key is kept in memory for one page view only, never in the cookie.
+    import secrets as _secrets
+
+    token = _secrets.token_urlsafe(16)
+    _NEW_API_KEYS[token] = {"name": request.form.get("name") or "unnamed", "key": key,
+                            "where": "all channels" if bot_api.ALL_CHANNELS in picked else ", ".join(picked),
+                            "scopes": ", ".join(scopes)}
+    return redirect(url_for("home", channel=ch.id, newkey=token, _anchor="botapi"))
 
 
 @app.post("/bot-api/key-channels")
@@ -3344,7 +3353,26 @@ Content Posting API (video.upload): the tool sends my finished videos to my TikT
   <h2>🔑 This bot's API</h2>
   <div class="card">
     <div class="hint">Doosre bot (jaise aapka SEO bot) ko ye address aur ek key dein. Key har request mein <code>Authorization: Bearer &lt;key&gt;</code> header mein jati hai.</div>
-    <div class="row" style="margin:10px 0"><strong>API address:</strong> <code>{{bot_api.base_url}}</code></div>
+    <script>
+    function copyText(id, btn){
+      const el=document.getElementById(id); const text=el.tagName==='INPUT'?el.value:el.textContent;
+      const done=()=>{const t=btn.textContent;btn.textContent='Copied ✓';setTimeout(()=>btn.textContent=t,1500);};
+      if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(text).then(done);}
+      else{const ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();done();}
+    }
+    </script>
+    <div class="row" style="margin:10px 0"><strong>API address:</strong> <code id="api-base">{{bot_api.base_url}}</code>
+      <button class="ghost sm" type="button" onclick="copyText('api-base', this)">Copy</button></div>
+    {% if bot_api.new_key %}
+    <div class="card" style="margin:10px 0;padding:14px;border:1px solid var(--ok)">
+      <strong>🔑 New key for {{bot_api.new_key.name}}</strong> <span class="chip">{{bot_api.new_key.scopes}}</span> <span class="chip">{{bot_api.new_key.where}}</span>
+      <div class="row" style="margin-top:8px">
+        <input id="new-api-key" value="{{bot_api.new_key.key}}" readonly style="flex:1;min-width:260px;font-family:monospace" onclick="this.select()">
+        <button class="green sm" type="button" onclick="copyText('new-api-key', this)">Copy key</button>
+      </div>
+      <div class="hint" style="color:var(--warn)">Abhi copy kar ke doosre bot mein save karein. Ye key dobara kabhi nahi dikhegi; kho jaye to Revoke kar ke nayi banayein.</div>
+    </div>
+    {% endif %}
     <div class="hint" style="margin-bottom:10px"><b>read</b>: channels, accounts, videos, topics dekhna. <b>write</b>: naye topics dena, video banwana, video ka title/description/tags (SEO) badalna. Poori list: <a href="/api/v1" target="_blank">/api/v1</a> aur docs/BOT_API.md.</div>
     <form method="post" action="/bot-api/key-create" class="row">
       <input type="hidden" name="channel" value="{{ch.id}}">

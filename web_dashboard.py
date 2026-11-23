@@ -3418,26 +3418,36 @@ Content Posting API (video.upload): the tool sends my finished videos to my TikT
       </div>
     </form>
     {% if bot_api.key_list %}
-    <table style="width:100%;margin-top:12px;border-collapse:collapse">
-      <tr class="muted" style="text-align:left"><th>Name</th><th>Key</th><th>Permissions</th><th>Channels</th><th>Created</th><th>Last used</th><th></th></tr>
+    <div style="margin-top:14px">
       {% for k in bot_api.key_list|reverse %}
-      <tr style="border-top:1px solid var(--line, #333){% if k.revoked %};opacity:.5{% endif %}">
-        <td>{{k.name}}</td><td><code>{{k.hint}}</code>{% if k.copyable and not k.revoked %}
-          <button class="ghost sm" type="button" style="padding:2px 8px" onclick="copyKey('{{k.id}}', this)">Copy</button>{% endif %}</td><td>{{k.scopes|join(', ')}}</td>
-        <td>{% set kc = k.channels if k.channels is defined else ['*'] %}
-          {% if k.revoked %}{{ 'all' if '*' in kc else kc|join(', ') }}{% else %}
+      {% set kc = k.channels if k.channels is defined else ['*'] %}
+      <div style="border-top:1px solid var(--line, #333);padding:12px 0{% if k.revoked %};opacity:.55{% endif %}">
+        <div class="row" style="gap:10px;align-items:center">
+          <strong style="font-size:1.05em">{{k.name}}</strong>
+          <code>{{k.hint}}</code>
+          {% if k.revoked %}<span class="chip">revoked</span>
+          {% elif k.copyable %}<button class="green sm" type="button" onclick="copyKey('{{k.id}}', this)">Copy</button>
+          {% else %}<button class="ghost sm" type="button" onclick="alert('Ye key copy wala feature aane se pehle bani thi, is liye iski poori key save nahi hai. Delete kar ke nayi key banayein, us par Copy chalega.')">Copy</button>{% endif %}
+        </div>
+        <div class="row" style="gap:14px;margin-top:8px;align-items:center;flex-wrap:wrap">
+          <span class="chip">{{k.scopes|join(' + ')}}</span>
+          {% if k.revoked %}<span class="muted">channels: {{ 'all' if '*' in kc else kc|join(', ') }}</span>
+          {% else %}
           <form method="post" action="/bot-api/key-channels" class="row" style="gap:8px">
             <input type="hidden" name="channel" value="{{ch.id}}"><input type="hidden" name="key_id" value="{{k.id}}">
             <label class="row" style="gap:3px"><input type="checkbox" name="channels" value="*" {{'checked' if '*' in kc}}> All</label>
             {% for c in channels %}<label class="row" style="gap:3px"><input type="checkbox" name="channels" value="{{c.id}}" {{'checked' if c.id in kc}}> {{c.name}}</label>{% endfor %}
             <button class="ghost sm" type="submit">Save</button>
-          </form>{% endif %}</td>
-        <td>{{k.created_at[:16].replace('T',' ')}}</td><td>{{(k.last_used_at or 'never')[:16].replace('T',' ')}}</td>
-        <td class="row" style="gap:6px">{% if k.revoked %}<span class="muted">revoked</span>{% else %}<form method="post" action="/bot-api/key-revoke" onsubmit="return confirm('Revoke this key? Any bot using it stops working.')"><input type="hidden" name="channel" value="{{ch.id}}"><input type="hidden" name="key_id" value="{{k.id}}"><button class="ghost sm" type="submit">Revoke</button></form>{% endif %}
-          <form method="post" action="/bot-api/key-delete" onsubmit="return confirm('Delete key {{k.name}}? Any bot using it stops working, and it leaves this list.')"><input type="hidden" name="channel" value="{{ch.id}}"><input type="hidden" name="key_id" value="{{k.id}}"><button class="ghost sm" type="submit" style="color:var(--bad, #e55)">Delete</button></form></td>
-      </tr>
+          </form>{% endif %}
+          <span class="muted">created {{k.created_at[:16].replace('T',' ')}} · last used {{(k.last_used_at or 'never')[:16].replace('T',' ')}}</span>
+          <span class="row" style="gap:6px;margin-left:auto">
+            {% if not k.revoked %}<form method="post" action="/bot-api/key-revoke" onsubmit="return confirm('Revoke this key? Any bot using it stops working.')"><input type="hidden" name="channel" value="{{ch.id}}"><input type="hidden" name="key_id" value="{{k.id}}"><button class="ghost sm" type="submit">Revoke</button></form>{% endif %}
+            <form method="post" action="/bot-api/key-delete" onsubmit="return confirm('Delete key {{k.name}}? Any bot using it stops working, and it leaves this list.')"><input type="hidden" name="channel" value="{{ch.id}}"><input type="hidden" name="key_id" value="{{k.id}}"><button class="ghost sm" type="submit" style="color:var(--bad, #e55)">Delete</button></form>
+          </span>
+        </div>
+      </div>
       {% endfor %}
-    </table>
+    </div>
     {% endif %}
   </div>
 

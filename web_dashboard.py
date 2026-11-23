@@ -232,6 +232,7 @@ def start_job(label, fn):
         "created_at": datetime.now().astimezone().strftime("%A, %d %b %Y, %I:%M %p"),
     }
     threading.Thread(target=_run_job, args=(jid, fn), daemon=True).start()
+    return jid
 
 
 def _long_job_summary(results: list[tuple[str, str]]) -> str:
@@ -282,6 +283,14 @@ def _safe_media(raw_path: str) -> Path:
 
 
 # ---------- routes ----------
+
+def _bot_api_view() -> dict:
+    from src import bot_api
+
+    base = request.host_url.rstrip("/")
+    return {"key_list": bot_api.list_keys(), "bot_list": bot_api.list_bots(), "base_url": base + "/api/v1",
+            "section": "botapi" if request.args.get("section") == "botapi" else ""}
+
 
 @app.route("/")
 def home():
@@ -359,9 +368,71 @@ def home():
         branding=setup_guide.BRANDING, languages=LANGUAGES, automation_on=dashboard_automation_on(),
         social=social_accounts.public_status(ch.id), social_uploads=social_uploads_for_channel(ch.id),
         github=github_identity.identity(),
+        bot_api=_bot_api_view(),
         stats={"topics": len(topics), "videos": len(vids), "uploaded": uploaded,
                "today": videos_generated_today_count(ch.id)},
     )
+
+
+# ------------------------------------------------------------------ Bot API
+# Other bots manage this one through /api/v1 (src/bot_api.py); the tab
+# "Bot API" creates keys for them and connects to other bots' APIs.
+
+@app.post("/bot-api/key-create")
+def bot_api_key_create():
+    from src import bot_api
+
+    ch = current_channel()
+    scopes = request.form.getlist("scopes") or ["read"]
+    key = bot_api.create_key(request.form.get("name", ""), scopes)
+    flash(f"🔑 New API key for '{request.form.get('name') or 'unnamed'}' ({', '.join(scopes)}). "
+          f"Copy it now, it is shown only once: {key}", "ok")
+    return redirect(url_for("home", channel=ch.id, section="botapi"))
+
+
+@app.post("/bot-api/key-revoke")
+def bot_api_key_revoke():
+    from src import bot_api
+
+    ch = current_channel()
+    if bot_api.revoke_key(request.form.get("key_id", "")):
+        flash("API key revoked; any bot using it is cut off now.", "ok")
+    return redirect(url_for("home", channel=ch.id, section="botapi"))
+
+
+@app.post("/bot-api/bot-add")
+def bot_api_bot_add():
+    from src import bot_api
+
+    ch = current_channel()
+    try:
+        row = bot_api.add_bot(request.form.get("name", ""), request.form.get("base_url", ""),
+                              request.form.get("api_key", ""))
+        ok, result = bot_api.test_bot(row["name"])
+        flash(("✅ " if ok else "⚠️ Saved, but the test failed: ") + result, "ok" if ok else "error")
+    except ValueError as exc:
+        flash(str(exc), "error")
+    return redirect(url_for("home", channel=ch.id, section="botapi"))
+
+
+@app.post("/bot-api/bot-test")
+def bot_api_bot_test():
+    from src import bot_api
+
+    ch = current_channel()
+    ok, result = bot_api.test_bot(request.form.get("name", ""))
+    flash(("✅ " if ok else "❌ ") + result, "ok" if ok else "error")
+    return redirect(url_for("home", channel=ch.id, section="botapi"))
+
+
+@app.post("/bot-api/bot-remove")
+def bot_api_bot_remove():
+    from src import bot_api
+
+    ch = current_channel()
+    if bot_api.remove_bot(request.form.get("name", "")):
+        flash("Bot removed.", "ok")
+    return redirect(url_for("home", channel=ch.id, section="botapi"))
 
 
 @app.route("/approval-mode", methods=["POST"])
@@ -2295,6 +2366,7 @@ PAGE = r"""
     <button type="button" data-section="analytics">Analytics &amp; Queue</button>
     <button type="button" data-section="library">Video Library</button>
     <button type="button" data-section="system">System</button>
+    <button type="button" data-section="botapi">Bot API</button>
   </nav>
 
   <section class="dash-section active" id="section-overview">
@@ -3248,6 +3320,59 @@ Content Posting API (video.upload): the tool sends my finished videos to my TikT
   <div class="card jobs-box" data-job-scope="all"><div class="muted jobs-empty">No jobs yet.</div></div>
 
   </section>
+  <section class="dash-section" id="section-botapi">
+  <div class="section-head"><h2>Bot API</h2><div class="muted">Doosre bots is bot ko chala sakein, aur ye bot doosre bots se baat kare</div></div>
+
+  <h2>🔑 This bot's API</h2>
+  <div class="card">
+    <div class="hint">Doosre bot (jaise aapka SEO bot) ko ye address aur ek key dein. Key har request mein <code>Authorization: Bearer &lt;key&gt;</code> header mein jati hai.</div>
+    <div class="row" style="margin:10px 0"><strong>API address:</strong> <code>{{bot_api.base_url}}</code></div>
+    <div class="hint" style="margin-bottom:10px"><b>read</b>: channels, accounts, videos, topics dekhna. <b>write</b>: naye topics dena, video banwana, video ka title/description/tags (SEO) badalna. Poori list: <a href="/api/v1" target="_blank">/api/v1</a> aur docs/BOT_API.md.</div>
+    <form method="post" action="/bot-api/key-create" class="row">
+      <input type="hidden" name="channel" value="{{ch.id}}">
+      <input name="name" placeholder="Key ka naam, e.g. seo-bot" required style="flex:1;min-width:200px">
+      <label class="row" style="gap:4px"><input type="checkbox" name="scopes" value="read" checked> read</label>
+      <label class="row" style="gap:4px"><input type="checkbox" name="scopes" value="write"> write</label>
+      <button class="green sm" type="submit">Create API key</button>
+    </form>
+    {% if bot_api.key_list %}
+    <table style="width:100%;margin-top:12px;border-collapse:collapse">
+      <tr class="muted" style="text-align:left"><th>Name</th><th>Key</th><th>Permissions</th><th>Created</th><th>Last used</th><th></th></tr>
+      {% for k in bot_api.key_list|reverse %}
+      <tr style="border-top:1px solid var(--line, #333){% if k.revoked %};opacity:.5{% endif %}">
+        <td>{{k.name}}</td><td><code>{{k.hint}}</code></td><td>{{k.scopes|join(', ')}}</td>
+        <td>{{k.created_at[:16].replace('T',' ')}}</td><td>{{(k.last_used_at or 'never')[:16].replace('T',' ')}}</td>
+        <td>{% if k.revoked %}revoked{% else %}<form method="post" action="/bot-api/key-revoke" onsubmit="return confirm('Revoke this key? Any bot using it stops working.')"><input type="hidden" name="channel" value="{{ch.id}}"><input type="hidden" name="key_id" value="{{k.id}}"><button class="ghost sm" type="submit">Revoke</button></form>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% endif %}
+  </div>
+
+  <h2>🔗 Connected bots</h2>
+  <div class="card">
+    <div class="hint">Doosre bot ka address aur us ki di hui key yahan add karein. Code se us bot ko <code>bot_api.call("naam", "GET", "/api/v1/status")</code> se call kar sakte hain.</div>
+    <form method="post" action="/bot-api/bot-add" class="row" style="margin-top:10px">
+      <input type="hidden" name="channel" value="{{ch.id}}">
+      <input name="name" placeholder="Naam, e.g. seo-bot" required style="width:150px">
+      <input name="base_url" placeholder="http://127.0.0.1:8100" required style="flex:1;min-width:200px">
+      <input type="password" name="api_key" placeholder="Us bot ki API key" required style="flex:1;min-width:200px">
+      <button class="green sm" type="submit">Add &amp; test</button>
+    </form>
+    {% for b in bot_api.bot_list %}
+    <div class="row" style="justify-content:space-between;margin-top:12px;padding-top:10px;border-top:1px solid var(--line, #333)">
+      <div><strong>{{b.name}}</strong> <code>{{b.base_url}}</code> <span class="chip">key {{b.key_hint}}</span>
+        <span class="chip">{% if b.last_ok %}✅ connected{% elif b.last_ok is sameas false %}❌ not reachable{% else %}not tested{% endif %}</span>
+        {% if b.last_result %}<div class="hint">{{b.last_result}}{% if b.last_checked_at %} ({{b.last_checked_at[:16].replace('T',' ')}}){% endif %}</div>{% endif %}</div>
+      <div class="row">
+        <form method="post" action="/bot-api/bot-test"><input type="hidden" name="channel" value="{{ch.id}}"><input type="hidden" name="name" value="{{b.name}}"><button class="ghost sm" type="submit">Test</button></form>
+        <form method="post" action="/bot-api/bot-remove" onsubmit="return confirm('Remove {{b.name}}?')"><input type="hidden" name="channel" value="{{ch.id}}"><input type="hidden" name="name" value="{{b.name}}"><button class="ghost sm" type="submit">Remove</button></form>
+      </div>
+    </div>
+    {% else %}<div class="muted" style="margin-top:10px">Abhi koi bot connected nahi.</div>{% endfor %}
+  </div>
+  {% if bot_api.section %}<script>document.addEventListener('DOMContentLoaded',function(){if(window.showSection)showSection('{{bot_api.section}}');});</script>{% endif %}
+  </section>
   <section class="dash-section" id="section-library">
   <div class="section-head"><h2>Video Library</h2><div class="muted">Preview, upload, retry or remove generated videos</div></div>
 
@@ -3519,6 +3644,11 @@ def _port_is_free(port: int) -> bool:
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         return probe.connect_ex(("127.0.0.1", port)) != 0
+
+
+from src.bot_api import blueprint as _bot_api_blueprint  # noqa: E402
+
+app.register_blueprint(_bot_api_blueprint(start_job, JOBS))
 
 
 if __name__ == "__main__":

@@ -88,3 +88,6 @@ data/welcome_runs.json
 # The channel picture and numbers read from YouTube (cache)
 data/brand/*/youtube.json
 data/github_identity.json
+# Bot API: key hashes and other bots' keys (src/bot_api.py)
+data/api_keys.json
+data/connected_bots.json

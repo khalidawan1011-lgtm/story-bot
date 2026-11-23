@@ -7,8 +7,10 @@ the dashboard's **Bot API** tab. Code: `src/bot_api.py`.
 ## Connecting two bots
 
 1. On Story Bot: **Bot API → Create API key**, name it after the other bot
-   (`seo-bot`), tick `read` and, if it may change things, `write`. Copy the key;
-   it is shown once.
+   (`seo-bot`), tick `read` and, if it may change things, `write`, and tick the
+   channels it may use (or **All channels**, which includes channels added
+   later). Copy the key; it is shown once. The channels of a key can be changed
+   later on the same tab.
 2. In the other bot: save Story Bot's address (`http://127.0.0.1:8000`) and that key.
 3. The other bot creates a key for Story Bot the same way.
 4. On Story Bot: **Bot API → Connected bots → Add & test** with the other bot's
@@ -30,6 +32,7 @@ Authorization: Bearer sbk_...
 |---|---|
 | 401 | no key, wrong key, or revoked key |
 | 403 | the key lacks the permission (`read` / `write`) |
+| 404 | unknown channel, or a channel this key was not given (it is not even listed) |
 
 Only a SHA-256 hash of each key is stored (`data/api_keys.json`, not in git).
 Revoking a key on the dashboard cuts the bot off at once.

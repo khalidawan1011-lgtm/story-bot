@@ -288,8 +288,7 @@ def _bot_api_view() -> dict:
     from src import bot_api
 
     base = request.host_url.rstrip("/")
-    return {"key_list": bot_api.list_keys(), "bot_list": bot_api.list_bots(), "base_url": base + "/api/v1",
-            "section": "botapi" if request.args.get("section") == "botapi" else ""}
+    return {"key_list": bot_api.list_keys(), "bot_list": bot_api.list_bots(), "base_url": base + "/api/v1"}
 
 
 @app.route("/")
@@ -384,10 +383,29 @@ def bot_api_key_create():
 
     ch = current_channel()
     scopes = request.form.getlist("scopes") or ["read"]
-    key = bot_api.create_key(request.form.get("name", ""), scopes)
-    flash(f"🔑 New API key for '{request.form.get('name') or 'unnamed'}' ({', '.join(scopes)}). "
+    picked = request.form.getlist("channels")
+    try:
+        key = bot_api.create_key(request.form.get("name", ""), scopes, picked)
+    except ValueError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("home", channel=ch.id, _anchor="botapi"))
+    where = "all channels" if bot_api.ALL_CHANNELS in picked else ", ".join(picked)
+    flash(f"🔑 New API key for '{request.form.get('name') or 'unnamed'}' ({', '.join(scopes)}; {where}). "
           f"Copy it now, it is shown only once: {key}", "ok")
-    return redirect(url_for("home", channel=ch.id, section="botapi"))
+    return redirect(url_for("home", channel=ch.id, _anchor="botapi"))
+
+
+@app.post("/bot-api/key-channels")
+def bot_api_key_channels():
+    from src import bot_api
+
+    ch = current_channel()
+    try:
+        if bot_api.set_key_channels(request.form.get("key_id", ""), request.form.getlist("channels")):
+            flash("Key's channels saved; it works only on the ticked channels now.", "ok")
+    except ValueError as exc:
+        flash(str(exc), "error")
+    return redirect(url_for("home", channel=ch.id, _anchor="botapi"))
 
 
 @app.post("/bot-api/key-revoke")
@@ -397,7 +415,7 @@ def bot_api_key_revoke():
     ch = current_channel()
     if bot_api.revoke_key(request.form.get("key_id", "")):
         flash("API key revoked; any bot using it is cut off now.", "ok")
-    return redirect(url_for("home", channel=ch.id, section="botapi"))
+    return redirect(url_for("home", channel=ch.id, _anchor="botapi"))
 
 
 @app.post("/bot-api/bot-add")
@@ -412,7 +430,7 @@ def bot_api_bot_add():
         flash(("✅ " if ok else "⚠️ Saved, but the test failed: ") + result, "ok" if ok else "error")
     except ValueError as exc:
         flash(str(exc), "error")
-    return redirect(url_for("home", channel=ch.id, section="botapi"))
+    return redirect(url_for("home", channel=ch.id, _anchor="botapi"))
 
 
 @app.post("/bot-api/bot-test")
@@ -422,7 +440,7 @@ def bot_api_bot_test():
     ch = current_channel()
     ok, result = bot_api.test_bot(request.form.get("name", ""))
     flash(("✅ " if ok else "❌ ") + result, "ok" if ok else "error")
-    return redirect(url_for("home", channel=ch.id, section="botapi"))
+    return redirect(url_for("home", channel=ch.id, _anchor="botapi"))
 
 
 @app.post("/bot-api/bot-remove")
@@ -432,7 +450,7 @@ def bot_api_bot_remove():
     ch = current_channel()
     if bot_api.remove_bot(request.form.get("name", "")):
         flash("Bot removed.", "ok")
-    return redirect(url_for("home", channel=ch.id, section="botapi"))
+    return redirect(url_for("home", channel=ch.id, _anchor="botapi"))
 
 
 @app.route("/approval-mode", methods=["POST"])
@@ -3334,13 +3352,25 @@ Content Posting API (video.upload): the tool sends my finished videos to my TikT
       <label class="row" style="gap:4px"><input type="checkbox" name="scopes" value="read" checked> read</label>
       <label class="row" style="gap:4px"><input type="checkbox" name="scopes" value="write"> write</label>
       <button class="green sm" type="submit">Create API key</button>
+      <div class="row" style="width:100%;gap:14px;margin-top:6px"><span class="muted">Channels this key may use:</span>
+        <label class="row" style="gap:4px"><input type="checkbox" name="channels" value="*"> <b>All channels</b> (new ones too)</label>
+        {% for c in channels %}<label class="row" style="gap:4px"><input type="checkbox" name="channels" value="{{c.id}}"> {{c.name}}</label>{% endfor %}
+      </div>
     </form>
     {% if bot_api.key_list %}
     <table style="width:100%;margin-top:12px;border-collapse:collapse">
-      <tr class="muted" style="text-align:left"><th>Name</th><th>Key</th><th>Permissions</th><th>Created</th><th>Last used</th><th></th></tr>
+      <tr class="muted" style="text-align:left"><th>Name</th><th>Key</th><th>Permissions</th><th>Channels</th><th>Created</th><th>Last used</th><th></th></tr>
       {% for k in bot_api.key_list|reverse %}
       <tr style="border-top:1px solid var(--line, #333){% if k.revoked %};opacity:.5{% endif %}">
         <td>{{k.name}}</td><td><code>{{k.hint}}</code></td><td>{{k.scopes|join(', ')}}</td>
+        <td>{% set kc = k.channels if k.channels is defined else ['*'] %}
+          {% if k.revoked %}{{ 'all' if '*' in kc else kc|join(', ') }}{% else %}
+          <form method="post" action="/bot-api/key-channels" class="row" style="gap:8px">
+            <input type="hidden" name="channel" value="{{ch.id}}"><input type="hidden" name="key_id" value="{{k.id}}">
+            <label class="row" style="gap:3px"><input type="checkbox" name="channels" value="*" {{'checked' if '*' in kc}}> All</label>
+            {% for c in channels %}<label class="row" style="gap:3px"><input type="checkbox" name="channels" value="{{c.id}}" {{'checked' if c.id in kc}}> {{c.name}}</label>{% endfor %}
+            <button class="ghost sm" type="submit">Save</button>
+          </form>{% endif %}</td>
         <td>{{k.created_at[:16].replace('T',' ')}}</td><td>{{(k.last_used_at or 'never')[:16].replace('T',' ')}}</td>
         <td>{% if k.revoked %}revoked{% else %}<form method="post" action="/bot-api/key-revoke" onsubmit="return confirm('Revoke this key? Any bot using it stops working.')"><input type="hidden" name="channel" value="{{ch.id}}"><input type="hidden" name="key_id" value="{{k.id}}"><button class="ghost sm" type="submit">Revoke</button></form>{% endif %}</td>
       </tr>
@@ -3371,7 +3401,6 @@ Content Posting API (video.upload): the tool sends my finished videos to my TikT
     </div>
     {% else %}<div class="muted" style="margin-top:10px">Abhi koi bot connected nahi.</div>{% endfor %}
   </div>
-  {% if bot_api.section %}<script>document.addEventListener('DOMContentLoaded',function(){if(window.showSection)showSection('{{bot_api.section}}');});</script>{% endif %}
   </section>
   <section class="dash-section" id="section-library">
   <div class="section-head"><h2>Video Library</h2><div class="muted">Preview, upload, retry or remove generated videos</div></div>
@@ -3454,7 +3483,7 @@ document.querySelectorAll('.platform-tabs button').forEach(x=>x.addEventListener
 function openPlatform(name){showSection('connections');showPlatform(name);}
 function openSetup(){showSection('overview');const el=document.getElementById('yt-setup');if(el)el.scrollIntoView({behavior:'smooth',block:'start'});}
 showPlatform(localStorage.getItem('storybot-platform')||'youtube');function showSection(name){
-  const valid=['overview','connections','create','analytics','library','system'];
+  const valid=['overview','connections','create','analytics','library','system','botapi'];
   if(!valid.includes(name)) name='overview';
   document.querySelectorAll('.dash-section').forEach(x=>x.classList.toggle('active',x.id==='section-'+name));
   document.querySelectorAll('.section-nav button').forEach(x=>x.classList.toggle('active',x.dataset.section===name));

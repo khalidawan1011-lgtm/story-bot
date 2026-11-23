@@ -5,8 +5,10 @@ Two halves, both managed from the dashboard's "Bot API" tab:
 1. This bot's own API (server). The dashboard creates API keys; another bot
    sends one as `Authorization: Bearer sbk_...` to /api/v1/... Each key has
    scopes: "read" (status, channels, accounts, videos, topics) and "write"
-   (add topics, start videos, change a video's SEO). Only a SHA-256 hash of a
-   key is kept (data/api_keys.json); the key itself is shown once.
+   (add topics, start videos, change a video's SEO), and the channels it may
+   touch: ticked channels only, or "*" for all channels including new ones.
+   Only a SHA-256 hash of a key is kept (data/api_keys.json); the key itself
+   is shown once.
 
 2. Connected bots (client). Another bot's base URL and key are saved in
    data/connected_bots.json; `call(name, method, path, body)` talks to it, and
@@ -69,15 +71,31 @@ def _hash(key: str) -> str:
 
 # ------------------------------------------------------------------ own keys
 
-def create_key(name: str, scopes: list[str]) -> str:
+ALL_CHANNELS = "*"
+
+
+def _clean_channels(channels) -> list[str]:
+    channels = [str(c).strip() for c in (channels or []) if str(c).strip()]
+    return [ALL_CHANNELS] if ALL_CHANNELS in channels else sorted(set(channels))
+
+
+def channel_allowed(row: dict, channel_id: str) -> bool:
+    channels = row.get("channels", [ALL_CHANNELS])  # keys made before channel ticks: all
+    return ALL_CHANNELS in channels or channel_id in channels
+
+
+def create_key(name: str, scopes: list[str], channels: list[str] | None = None) -> str:
     """A new key; returned once and never stored in plain text."""
     scopes = [s for s in scopes if s in SCOPES] or ["read"]
+    channels = _clean_channels(channels)
+    if not channels:
+        raise ValueError("Tick at least one channel (or All channels) for this key.")
     key = KEY_PREFIX + secrets.token_urlsafe(32)
     with _LOCK:
         rows = _read(_KEYS_PATH)
         rows.append({
             "id": secrets.token_hex(4), "name": (name or "unnamed").strip()[:60],
-            "scopes": scopes, "hash": _hash(key), "hint": key[:8] + "…" + key[-4:],
+            "scopes": scopes, "channels": channels, "hash": _hash(key), "hint": key[:8] + "…" + key[-4:],
             "created_at": _now(), "last_used_at": None, "revoked": False,
         })
         _write(_KEYS_PATH, rows)
@@ -86,6 +104,22 @@ def create_key(name: str, scopes: list[str]) -> str:
 
 def list_keys() -> list[dict]:
     return [{k: v for k, v in row.items() if k != "hash"} for row in _read(_KEYS_PATH)]
+
+
+def set_key_channels(key_id: str, channels: list[str]) -> bool:
+    """Change which channels an existing key may use; takes effect at once."""
+    channels = _clean_channels(channels)
+    if not channels:
+        raise ValueError("Tick at least one channel (or All channels), or revoke the key.")
+    with _LOCK:
+        rows = _read(_KEYS_PATH)
+        found = False
+        for row in rows:
+            if row.get("id") == key_id and not row.get("revoked"):
+                row["channels"] = channels
+                found = True
+        _write(_KEYS_PATH, rows)
+    return found
 
 
 def revoke_key(key_id: str) -> bool:
@@ -222,8 +256,12 @@ def require(scope: str):
 
 
 def _channel_or_404(channel_id: str):
+    """The channel, or None. A channel this key was not given counts as unknown,
+    so a bot cannot even learn which other channels exist."""
     from .channels import load_channels
 
+    if not channel_allowed(g.api_key, channel_id):
+        return None
     for channel in load_channels():
         if channel.id == channel_id:
             return channel
@@ -277,7 +315,7 @@ def blueprint(start_job, jobs: dict) -> Blueprint:
     def status():
         from .channels import load_channels
 
-        channels = load_channels()
+        channels = [c for c in load_channels() if channel_allowed(g.api_key, c.id)]
         running = sum(1 for j in jobs.values() if j.get("status") in ("queued", "running"))
         return jsonify(bot=BOT_NAME, api=API_VERSION, time=_now(), channels=len(channels),
                        jobs_running=running, key=g.api_key.get("name"))
@@ -287,14 +325,15 @@ def blueprint(start_job, jobs: dict) -> Blueprint:
     def channels():
         from .channels import load_channels
 
-        return jsonify(channels=[_channel_summary(c) for c in load_channels()])
+        return jsonify(channels=[_channel_summary(c) for c in load_channels()
+                                 if channel_allowed(g.api_key, c.id)])
 
     @bp.get("/channels/<channel_id>")
     @require("read")
     def channel(channel_id):
         ch = _channel_or_404(channel_id)
         if ch is None:
-            return jsonify(error="unknown channel"), 404
+            return jsonify(error="unknown channel, or this key is not allowed to use it"), 404
         data = _channel_summary(ch)
         try:
             from . import youtube_analytics
@@ -310,7 +349,7 @@ def blueprint(start_job, jobs: dict) -> Blueprint:
         import sqlite3
 
         if _channel_or_404(channel_id) is None:
-            return jsonify(error="unknown channel"), 404
+            return jsonify(error="unknown channel, or this key is not allowed to use it"), 404
         limit = max(1, min(200, int(request.args.get("limit", 50))))
         kind = request.args.get("type", "")
         sql = ("SELECT id, topic, title, COALESCE(content_type,'short') AS content_type, status, video_url, "
@@ -341,7 +380,7 @@ def blueprint(start_job, jobs: dict) -> Blueprint:
 
         ch = _channel_or_404(channel_id)
         if ch is None:
-            return jsonify(error="unknown channel"), 404
+            return jsonify(error="unknown channel, or this key is not allowed to use it"), 404
         items = load_topics_for(ch)
         return jsonify(topics=[{"key": k, "title": v.get("title", k)} for k, v in items.items()])
 
@@ -350,7 +389,7 @@ def blueprint(start_job, jobs: dict) -> Blueprint:
     def add_topics(channel_id):
         ch = _channel_or_404(channel_id)
         if ch is None:
-            return jsonify(error="unknown channel"), 404
+            return jsonify(error="unknown channel, or this key is not allowed to use it"), 404
         body = request.get_json(silent=True) or {}
         prompts = [str(t).strip()[:300] for t in (body.get("topics") or []) if str(t).strip()][:10]
         if not prompts:
@@ -381,7 +420,7 @@ def blueprint(start_job, jobs: dict) -> Blueprint:
 
         ch = _channel_or_404(channel_id)
         if ch is None:
-            return jsonify(error="unknown channel"), 404
+            return jsonify(error="unknown channel, or this key is not allowed to use it"), 404
         body = request.get_json(silent=True) or {}
         count = max(1, min(4, int(body.get("shorts", 1))))
         upload = bool(body.get("upload", True))
@@ -398,7 +437,7 @@ def blueprint(start_job, jobs: dict) -> Blueprint:
     def seo(channel_id, youtube_id):
         ch = _channel_or_404(channel_id)
         if ch is None:
-            return jsonify(error="unknown channel"), 404
+            return jsonify(error="unknown channel, or this key is not allowed to use it"), 404
         body = request.get_json(silent=True) or {}
         try:
             changed = update_video_seo(ch, youtube_id, title=body.get("title"),
@@ -415,7 +454,9 @@ def blueprint(start_job, jobs: dict) -> Blueprint:
     @require("read")
     def job_status(job_id):
         job = jobs.get(job_id)
-        if job is None:
+        label = str((job or {}).get("label", ""))
+        job_channel = label[1:label.index("]")] if label.startswith("[") and "]" in label else ""
+        if job is None or (job_channel and not channel_allowed(g.api_key, job_channel)):
             return jsonify(error="unknown job"), 404
         return jsonify(id=job_id, **{k: job.get(k) for k in ("label", "status", "detail", "created_at")})
 

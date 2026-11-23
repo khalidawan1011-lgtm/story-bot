@@ -7,8 +7,9 @@ Two halves, both managed from the dashboard's "Bot API" tab:
    scopes: "read" (status, channels, accounts, videos, topics) and "write"
    (add topics, start videos, change a video's SEO), and the channels it may
    touch: ticked channels only, or "*" for all channels including new ones.
-   Only a SHA-256 hash of a key is kept (data/api_keys.json); the key itself
-   is shown once.
+   Requests are checked against a SHA-256 hash of the key. The key itself is
+   also kept in data/api_keys.json (never in git) so the dashboard can copy it
+   again later, on request only; it is never put in the page or the cookie.
 
 2. Connected bots (client). Another bot's base URL and key are saved in
    data/connected_bots.json; `call(name, method, path, body)` talks to it, and
@@ -95,7 +96,7 @@ def create_key(name: str, scopes: list[str], channels: list[str] | None = None) 
         rows = _read(_KEYS_PATH)
         rows.append({
             "id": secrets.token_hex(4), "name": (name or "unnamed").strip()[:60],
-            "scopes": scopes, "channels": channels, "hash": _hash(key), "hint": key[:8] + "…" + key[-4:],
+            "scopes": scopes, "channels": channels, "hash": _hash(key), "key": key, "hint": key[:8] + "…" + key[-4:],
             "created_at": _now(), "last_used_at": None, "revoked": False,
         })
         _write(_KEYS_PATH, rows)
@@ -103,7 +104,25 @@ def create_key(name: str, scopes: list[str], channels: list[str] | None = None) 
 
 
 def list_keys() -> list[dict]:
-    return [{k: v for k, v in row.items() if k != "hash"} for row in _read(_KEYS_PATH)]
+    return [{**{k: v for k, v in row.items() if k not in ("hash", "key")}, "copyable": bool(row.get("key"))}
+            for row in _read(_KEYS_PATH)]
+
+
+def key_text(key_id: str) -> str | None:
+    """The full key, for the dashboard's Copy button. Not for revoked keys."""
+    for row in _read(_KEYS_PATH):
+        if row.get("id") == key_id and not row.get("revoked"):
+            return row.get("key")
+    return None
+
+
+def delete_key(key_id: str) -> bool:
+    """Remove a key from the list entirely; a bot using it is cut off at once."""
+    with _LOCK:
+        rows = _read(_KEYS_PATH)
+        kept = [r for r in rows if r.get("id") != key_id]
+        _write(_KEYS_PATH, kept)
+    return len(kept) != len(rows)
 
 
 def set_key_channels(key_id: str, channels: list[str]) -> bool:
@@ -130,6 +149,7 @@ def revoke_key(key_id: str) -> bool:
             if row.get("id") == key_id and not row.get("revoked"):
                 row["revoked"] = True
                 row["revoked_at"] = _now()
+                row.pop("key", None)  # a revoked key is never copied again
                 found = True
         _write(_KEYS_PATH, rows)
     return found

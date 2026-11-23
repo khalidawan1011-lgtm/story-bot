@@ -417,6 +417,30 @@ def bot_api_key_channels():
     return redirect(url_for("home", channel=ch.id, _anchor="botapi"))
 
 
+@app.post("/bot-api/key-delete")
+def bot_api_key_delete():
+    from src import bot_api
+
+    ch = current_channel()
+    if bot_api.delete_key(request.form.get("key_id", "")):
+        flash("API key deleted; any bot using it is cut off now.", "ok")
+    return redirect(url_for("home", channel=ch.id, _anchor="botapi"))
+
+
+@app.post("/bot-api/key-copy")
+def bot_api_key_copy():
+    """The full key for the Copy button, fetched only when it is pressed."""
+    from src import bot_api
+
+    # Only this dashboard's own page may ask (a page on another site cannot read it).
+    if request.headers.get("X-Requested-With") != "storybot":
+        abort(403)
+    key = bot_api.key_text(request.form.get("key_id", ""))
+    if not key:
+        return jsonify(error="This key cannot be copied (made before copying existed, or revoked)."), 404
+    return jsonify(key=key)
+
+
 @app.post("/bot-api/key-revoke")
 def bot_api_key_revoke():
     from src import bot_api
@@ -3354,10 +3378,18 @@ Content Posting API (video.upload): the tool sends my finished videos to my TikT
   <div class="card">
     <div class="hint">Doosre bot (jaise aapka SEO bot) ko ye address aur ek key dein. Key har request mein <code>Authorization: Bearer &lt;key&gt;</code> header mein jati hai.</div>
     <script>
+    async function copyKey(keyId, btn){
+      const body=new URLSearchParams({key_id:keyId});
+      const r=await fetch('/bot-api/key-copy',{method:'POST',body,headers:{'X-Requested-With':'storybot'}});
+      const d=await r.json();
+      if(!r.ok){alert(d.error||'Could not copy');return;}
+      const holder=document.createElement('input');holder.id='key-copy-holder';holder.value=d.key;holder.style.position='fixed';holder.style.opacity='0';
+      document.body.appendChild(holder);copyText('key-copy-holder',btn);holder.remove();
+    }
     function copyText(id, btn){
       const el=document.getElementById(id); const text=el.tagName==='INPUT'?el.value:el.textContent;
       const done=()=>{const t=btn.textContent;btn.textContent='Copied ✓';setTimeout(()=>btn.textContent=t,1500);};
-      if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(text).then(done);}
+      if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(text).then(done).catch(()=>prompt('Copy this (Ctrl+C):',text));}
       else{const ta=document.createElement('textarea');ta.value=text;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();done();}
     }
     </script>
@@ -3390,7 +3422,8 @@ Content Posting API (video.upload): the tool sends my finished videos to my TikT
       <tr class="muted" style="text-align:left"><th>Name</th><th>Key</th><th>Permissions</th><th>Channels</th><th>Created</th><th>Last used</th><th></th></tr>
       {% for k in bot_api.key_list|reverse %}
       <tr style="border-top:1px solid var(--line, #333){% if k.revoked %};opacity:.5{% endif %}">
-        <td>{{k.name}}</td><td><code>{{k.hint}}</code></td><td>{{k.scopes|join(', ')}}</td>
+        <td>{{k.name}}</td><td><code>{{k.hint}}</code>{% if k.copyable and not k.revoked %}
+          <button class="ghost sm" type="button" style="padding:2px 8px" onclick="copyKey('{{k.id}}', this)">Copy</button>{% endif %}</td><td>{{k.scopes|join(', ')}}</td>
         <td>{% set kc = k.channels if k.channels is defined else ['*'] %}
           {% if k.revoked %}{{ 'all' if '*' in kc else kc|join(', ') }}{% else %}
           <form method="post" action="/bot-api/key-channels" class="row" style="gap:8px">
@@ -3400,7 +3433,8 @@ Content Posting API (video.upload): the tool sends my finished videos to my TikT
             <button class="ghost sm" type="submit">Save</button>
           </form>{% endif %}</td>
         <td>{{k.created_at[:16].replace('T',' ')}}</td><td>{{(k.last_used_at or 'never')[:16].replace('T',' ')}}</td>
-        <td>{% if k.revoked %}revoked{% else %}<form method="post" action="/bot-api/key-revoke" onsubmit="return confirm('Revoke this key? Any bot using it stops working.')"><input type="hidden" name="channel" value="{{ch.id}}"><input type="hidden" name="key_id" value="{{k.id}}"><button class="ghost sm" type="submit">Revoke</button></form>{% endif %}</td>
+        <td class="row" style="gap:6px">{% if k.revoked %}<span class="muted">revoked</span>{% else %}<form method="post" action="/bot-api/key-revoke" onsubmit="return confirm('Revoke this key? Any bot using it stops working.')"><input type="hidden" name="channel" value="{{ch.id}}"><input type="hidden" name="key_id" value="{{k.id}}"><button class="ghost sm" type="submit">Revoke</button></form>{% endif %}
+          <form method="post" action="/bot-api/key-delete" onsubmit="return confirm('Delete key {{k.name}}? Any bot using it stops working, and it leaves this list.')"><input type="hidden" name="channel" value="{{ch.id}}"><input type="hidden" name="key_id" value="{{k.id}}"><button class="ghost sm" type="submit" style="color:var(--bad, #e55)">Delete</button></form></td>
       </tr>
       {% endfor %}
     </table>

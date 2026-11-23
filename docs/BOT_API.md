@@ -34,8 +34,10 @@ Authorization: Bearer sbk_...
 | 403 | the key lacks the permission (`read` / `write`) |
 | 404 | unknown channel, or a channel this key was not given (it is not even listed) |
 
-Only a SHA-256 hash of each key is stored (`data/api_keys.json`, not in git).
-Revoking a key on the dashboard cuts the bot off at once.
+Requests are checked against a SHA-256 hash of the key. The key itself is also
+kept in `data/api_keys.json` (never in git) so the dashboard's **Copy** button can
+copy it again; it is fetched only when Copy is pressed, never put in the page.
+**Revoke** cuts a bot off at once and keeps the row; **Delete** removes the key.
 
 ## Endpoints
 

@@ -7,8 +7,13 @@ moment it ends. So at upload time a copy of the card is stored in the bot's
 database, which travels with the bot-state branch, together with the channel it
 was made for.
 
-The check compares the picture YouTube serves for the video (mqdefault.jpg,
-the custom thumbnail at 320x180) with the stored copy:
+The check compares the picture YouTube serves for the video with the stored
+copy, in the card's own shape: a long video's card (16:9) against mqdefault.jpg,
+a Short's card (9:16) against sardefault.jpg, the picture the Shorts lists show.
+The card is stored exactly as made. (The first version squeezed every card to
+1280x720 and compared Shorts with the 16:9 picture, so it never matched and kept
+putting a squashed card on Shorts. Those copies sit in the old table
+thumbnail_memory and are never read again.)
 
     same card            mean grey difference ~1
     a different picture  20 or more (measured on the real channels)
@@ -35,7 +40,9 @@ from pathlib import Path
 from .config import settings
 
 MATCH_LIMIT = 8.0            # mean grey difference at or below this = our card
-FINGERPRINT_SIZE = (64, 36)
+LANDSCAPE_SIZE = (64, 36)
+PORTRAIT_SIZE = (36, 64)
+TABLE = "thumbnail_cards"
 VERIFY_DELAY_SECONDS = 45    # YouTube needs a moment to show a freshly set thumbnail
 REFIX_AFTER = timedelta(minutes=30)
 MAX_FIXES = 4                # per video, so a stubborn video cannot eat the thumbnail allowance
@@ -51,7 +58,7 @@ _CHANNEL_IDS: dict[str, str] = {}
 def _conn() -> sqlite3.Connection:
     conn = sqlite3.connect(settings.db_path, timeout=30)
     conn.execute(
-        """CREATE TABLE IF NOT EXISTS thumbnail_memory (
+        f"""CREATE TABLE IF NOT EXISTS {TABLE} (
                video_id TEXT PRIMARY KEY,
                channel TEXT NOT NULL,
                youtube_channel_id TEXT,
@@ -67,10 +74,14 @@ def _conn() -> sqlite3.Connection:
     return conn
 
 
-def _fingerprint(gray) -> "object":
+def _portrait(image) -> bool:
+    return image.shape[0] > image.shape[1]
+
+
+def _fingerprint(gray, portrait: bool) -> "object":
     import cv2
 
-    return cv2.resize(gray, FINGERPRINT_SIZE, interpolation=cv2.INTER_AREA)
+    return cv2.resize(gray, PORTRAIT_SIZE if portrait else LANDSCAPE_SIZE, interpolation=cv2.INTER_AREA)
 
 
 def _video_id(video_url_or_id: str) -> str:
@@ -87,18 +98,17 @@ def remember(video_url_or_id: str, channel, thumbnail_path: Path) -> bool:
     if image is None:
         print(f"[thumbnail-memory] nothing to remember for {video_url_or_id}: {path}")
         return False
-    if image.shape[1] != 1280 or image.shape[0] != 720:
-        image = cv2.resize(image, (1280, 720), interpolation=cv2.INTER_AREA)
+    # Stored in its own shape: a Short's card is 9:16 and must stay 9:16.
     ok, encoded = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 90])
     if not ok:
         return False
-    fingerprint = _fingerprint(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY))
+    fingerprint = _fingerprint(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), _portrait(image))
     video_id = _video_id(video_url_or_id)
     with _LOCK:
         conn = _conn()
         try:
             conn.execute(
-                """INSERT INTO thumbnail_memory (video_id, channel, image, fingerprint, saved_at, state)
+                f"""INSERT INTO {TABLE} (video_id, channel, image, fingerprint, saved_at, state)
                    VALUES (?, ?, ?, ?, ?, 'saved')
                    ON CONFLICT(video_id) DO UPDATE SET
                        channel=excluded.channel, image=excluded.image,
@@ -117,7 +127,7 @@ def _row(video_id: str):
     conn = _conn()
     conn.row_factory = sqlite3.Row
     try:
-        return conn.execute("SELECT * FROM thumbnail_memory WHERE video_id = ?", (video_id,)).fetchone()
+        return conn.execute(f"SELECT * FROM {TABLE} WHERE video_id = ?", (video_id,)).fetchone()
     finally:
         conn.close()
 
@@ -128,7 +138,7 @@ def _update(video_id: str, state: str, note: str = "", fixed: bool = False) -> N
         conn = _conn()
         try:
             conn.execute(
-                """UPDATE thumbnail_memory SET state = ?, note = ?, checked_at = ?,
+                f"""UPDATE {TABLE} SET state = ?, note = ?, checked_at = ?,
                           fixed_at = CASE WHEN ? THEN ? ELSE fixed_at END,
                           fixes = fixes + CASE WHEN ? THEN 1 ELSE 0 END
                    WHERE video_id = ?""",
@@ -168,7 +178,7 @@ def prune(days: int = KEEP_DAYS) -> int:
     with _LOCK:
         conn = _conn()
         try:
-            removed = conn.execute("DELETE FROM thumbnail_memory WHERE saved_at < ?", (since,)).rowcount
+            removed = conn.execute(f"DELETE FROM {TABLE} WHERE saved_at < ?", (since,)).rowcount
             conn.commit()
         finally:
             conn.close()
@@ -177,12 +187,20 @@ def prune(days: int = KEEP_DAYS) -> int:
 
 # ------------------------------------------------------------------ checking
 
-def _shown_fingerprint(video_id: str):
-    """YouTube's current thumbnail for the video, or None while it is not public."""
+def _stored_image(row):
     import cv2
     import numpy as np
 
-    request = urllib.request.Request(f"https://i.ytimg.com/vi/{video_id}/mqdefault.jpg",
+    return cv2.imdecode(np.frombuffer(bytes(row["image"]), np.uint8), cv2.IMREAD_GRAYSCALE)
+
+
+def _shown_fingerprint(video_id: str, portrait: bool):
+    """YouTube's current thumbnail in the card's shape, or None while it is not public."""
+    import cv2
+    import numpy as np
+
+    name = "sardefault" if portrait else "mqdefault"
+    request = urllib.request.Request(f"https://i.ytimg.com/vi/{video_id}/{name}.jpg",
                                      headers={"User-Agent": "Mozilla/5.0 story-bot-studio"})
     try:
         with urllib.request.urlopen(request, timeout=20) as response:
@@ -190,7 +208,9 @@ def _shown_fingerprint(video_id: str):
     except (urllib.error.URLError, TimeoutError, OSError):
         return None
     gray = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_GRAYSCALE)
-    return None if gray is None else _fingerprint(gray)
+    if gray is None or _portrait(gray) != portrait:
+        return None
+    return _fingerprint(gray, portrait)
 
 
 def compare(video_url_or_id: str) -> tuple[str, float | None]:
@@ -201,10 +221,14 @@ def compare(video_url_or_id: str) -> tuple[str, float | None]:
     row = _row(video_id)
     if row is None:
         return "no_memory", None
-    shown = _shown_fingerprint(video_id)
+    stored = _stored_image(row)
+    if stored is None:
+        return "no_memory", None
+    portrait = _portrait(stored)
+    shown = _shown_fingerprint(video_id, portrait)
     if shown is None:
         return "not_public", None
-    mine = np.frombuffer(bytes(row["fingerprint"]), np.uint8).reshape(FINGERPRINT_SIZE[1], FINGERPRINT_SIZE[0])
+    mine = _fingerprint(stored, portrait)
     difference = float(np.abs(mine.astype(float) - shown.astype(float)).mean())
     return ("ours" if difference <= MATCH_LIMIT else "different"), difference
 
@@ -218,6 +242,15 @@ def _own_channel_id(channel) -> str:
         items = youtube.channels().list(part="id", mine=True).execute().get("items") or []
         _CHANNEL_IDS[key] = items[0]["id"] if items else ""
     return _CHANNEL_IDS[key]
+
+
+def _is_short(youtube, video_id: str) -> bool:
+    """A Short is vertical; YouTube reports no shape, so its duration (<= 3 min) decides."""
+    from .thumbnail_audit import _duration_seconds
+
+    items = youtube.videos().list(part="contentDetails", id=video_id).execute().get("items") or []
+    duration = items[0]["contentDetails"].get("duration", "") if items else ""
+    return 0 < _duration_seconds(duration) <= 180
 
 
 def channel_problem(video_id: str, channel) -> str:
@@ -234,13 +267,16 @@ def channel_problem(video_id: str, channel) -> str:
     if not items:
         return "this login cannot see the video (deleted, or on another channel)"
     on_channel = items[0]["snippet"].get("channelId", "")
+    stored = _stored_image(row)
+    if stored is None or _portrait(stored) != _is_short(youtube, video_id):
+        return "the stored card's shape (portrait/landscape) does not fit this video"
     own = _own_channel_id(channel)
     if own and on_channel != own:
         return f"the video is on channel {on_channel}, but this login is channel {own}"
     with _LOCK:
         conn = _conn()
         try:
-            conn.execute("UPDATE thumbnail_memory SET youtube_channel_id = ? WHERE video_id = ?",
+            conn.execute(f"UPDATE {TABLE} SET youtube_channel_id = ? WHERE video_id = ?",
                          (on_channel, video_id))
             conn.commit()
         finally:
@@ -327,7 +363,7 @@ def verify_recent(days: int = 7, fix: bool = True, channel_id: str | None = None
     conn = _conn()
     try:
         rows = conn.execute(
-            """SELECT video_id, channel FROM thumbnail_memory
+            f"""SELECT video_id, channel FROM {TABLE}
                WHERE saved_at >= ? AND state != 'ours' ORDER BY saved_at""",
             (since,),
         ).fetchall()

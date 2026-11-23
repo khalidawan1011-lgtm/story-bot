@@ -241,6 +241,13 @@ def thumbnail_for(channel, video: dict) -> Path:
     from .thumbnail_memory import card_for
 
     stored = card_for(video["id"], channel)
+    if stored is not None:
+        from PIL import Image
+
+        with Image.open(stored) as card:
+            portrait = card.height > card.width
+        if portrait != bool(video.get("short")):
+            stored = None  # a 16:9 card on a Short (or the reverse) is never set
     if stored is not None and check_thumbnail(stored).ok:
         from .style_match import style_ok
 
